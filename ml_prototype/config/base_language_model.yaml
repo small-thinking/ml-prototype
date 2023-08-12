@@ -1,0 +1,36 @@
+seed_everything: 42
+trainer:
+  max_epochs: 10
+  callbacks:
+    class_path: lm.model.DummyCallback
+
+model:
+  class_path: lm.model.Seq2SeqLM
+  init_args:
+    model:
+      class_path: lm.module.FeedForwardModel
+      init_args:
+        config:
+          context_size: &context_size 16
+          vocab_size: &vocab_size 65
+          has_embedding: true
+          layer_sizes: [128, 128]
+    loss:
+      class_path: torch.nn.CrossEntropyLoss
+    
+data:
+  class_path: lm.data_module.InMemoryDataModule
+  init_args:
+    config:
+      data_path: ~/Downloads/test_data.txt
+      samples_per_epoch: 100000
+      batch_size: 128
+      context_size: *context_size
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 0.0001
+    weight_decay: 0.01
+
+  
