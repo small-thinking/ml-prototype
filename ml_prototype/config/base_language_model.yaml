@@ -1,6 +1,11 @@
 seed_everything: 42
 trainer:
-  max_epochs: 10
+  max_epochs: 30
+  logger:
+    class_path: lightning.pytorch.loggers.TensorBoardLogger
+    init_args:
+      save_dir: ./lightning_logs
+      name: feedforward-c16-b128-rmsn
   callbacks:
     class_path: lm.model.DummyCallback
 
@@ -15,6 +20,8 @@ model:
           vocab_size: &vocab_size 65
           has_embedding: true
           layer_sizes: [128, 128]
+          pre_norm: true
+          norm_type: rms_norm
     loss:
       class_path: torch.nn.CrossEntropyLoss
     
@@ -30,7 +37,7 @@ data:
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
-    lr: 0.0001
+    lr: 0.001
     weight_decay: 0.01
 
   

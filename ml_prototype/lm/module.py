@@ -13,6 +13,55 @@ class LanguageModule(nn.Module, abc.ABC):
         self.config = config
 
 
+class RMSNorm(nn.Module):
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        layer_shape: List[int],
+        eps: int = 1e-8,
+        bias: bool = False,
+    ):
+        """Root mean square layer normalization.
+        See Biao Zhang, Rico Sennrich, Root Mean Square Layer Normalization, NeurIPS 2019.
+
+        Args:
+            config (Dict[str, Any]): The shared configuration for model.
+            layer_shape (List[int]): The shape of the layer, excluding the batch dimension.
+            eps (int, optional): The epsilon value. Defaults to 1e-8.
+            bias (bool, optional): Whether to use bias. Defaults to False.
+        """
+        super().__init__()
+        self.config = config
+        self.layer_shape = layer_shape
+        self.eps = eps
+        self.bias = bias
+        self.scale = nn.Parameter(torch.ones(layer_shape))
+        self.register_parameter("scale", self.scale)
+        if self.bias:
+            self.bias = nn.Parameter(torch.zeros(layer_shape))
+            self.register_parameter("bias", self.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x (torch.Tensor): The input tensor, in shape [batch, context_size, layer_size].
+        """
+        assert (
+            x.shape[1] == self.config["context_size"]
+        ), f"x.shape: {x.shape}, expect: {self.config['context_size']}"
+
+        norm_x = x.norm(p=2, dim=-1, keepdim=True)
+        d_x = self.layer_shape
+
+        rms_x = norm_x * d_x**-0.5
+        x_normed = x / (rms_x + self.eps)
+
+        if self.bias:
+            return self.scale * x_normed + self.bias
+        else:
+            return self.scale * x_normed
+
+
 class ScaledDotProductAttention(nn.Module):
     def __init__(self, temperature: int = 1.0, dropout_ratio: int = 0.0):
         super().__init__()
@@ -137,9 +186,9 @@ class FeedForwardModel(LanguageModule):
         if self.config.get("has_embedding", False):
             embedding = nn.Embedding(self.vocab_size, layer_sizes[0])
             layers.append(embedding)
-        # Add the last layer.
         for i in range(len(layer_sizes) - 1):
             self._add_layer(layers, layer_sizes[i], layer_sizes[i + 1])
+        # Add the last layer.
         self._add_layer(layers, layer_sizes[-1], self.vocab_size, is_last_layer=True)
         self.ffm = nn.Sequential(*layers)
 
@@ -150,12 +199,28 @@ class FeedForwardModel(LanguageModule):
         out_size: int,
         is_last_layer: bool = False,
     ):
+        if self.config.get("pre_norm", False):
+            norm_type = self.config.get("norm_type", "layer_norm")
+            if norm_type == "layer_norm":
+                layers.append(nn.LayerNorm(in_size))
+            elif norm_type == "batch_norm":
+                layers.append(nn.BatchNorm1d(in_size))
+            elif norm_type == "rms_norm":
+                layers.append(RMSNorm(self.config, in_size))
         layers.append(nn.Linear(in_size, out_size))
         if (
             not is_last_layer
             and self.config.get("activation_type", "relu").lower() == "relu"
         ):
             layers.append(nn.ReLU())
+        if not self.config.get("pre_norm", False):
+            norm_type = self.config.get("norm_type", "layer_norm")
+            if norm_type == "layer_norm":
+                layers.append(nn.LayerNorm(out_size))
+            elif norm_type == "batch_norm":
+                layers.append(nn.BatchNorm1d(out_size))
+            elif norm_type == "rms_norm":
+                layers.append(RMSNorm(self.config, out_size))
 
     def forward(self, batch) -> torch.Tensor:
         """Conduct a batch inference."""
