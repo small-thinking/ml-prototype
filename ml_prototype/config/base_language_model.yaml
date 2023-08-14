@@ -1,6 +1,6 @@
 seed_everything: 42
 trainer:
-  max_epochs: 30
+  max_epochs: 3
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
     init_args:

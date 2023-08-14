@@ -17,46 +17,40 @@ class RMSNorm(nn.Module):
     def __init__(
         self,
         config: Dict[str, Any],
-        layer_shape: List[int],
+        layer_size: int,
         eps: int = 1e-8,
-        bias: bool = False,
+        has_bias: bool = False,
     ):
         """Root mean square layer normalization.
         See Biao Zhang, Rico Sennrich, Root Mean Square Layer Normalization, NeurIPS 2019.
 
         Args:
             config (Dict[str, Any]): The shared configuration for model.
-            layer_shape (List[int]): The shape of the layer, excluding the batch dimension.
+            layer_size (int): The size of the layer,.
             eps (int, optional): The epsilon value. Defaults to 1e-8.
-            bias (bool, optional): Whether to use bias. Defaults to False.
+            has_bias (bool, optional): Whether to use bias. Defaults to False.
         """
         super().__init__()
         self.config = config
-        self.layer_shape = layer_shape
+        self.layer_size = layer_size
         self.eps = eps
-        self.bias = bias
-        self.scale = nn.Parameter(torch.ones(layer_shape))
+        self.has_bias = has_bias
+        self.scale = nn.Parameter(torch.ones(layer_size))
         self.register_parameter("scale", self.scale)
-        if self.bias:
-            self.bias = nn.Parameter(torch.zeros(layer_shape))
+        if self.has_bias:
+            self.bias = nn.Parameter(torch.zeros(layer_size))
             self.register_parameter("bias", self.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x (torch.Tensor): The input tensor, in shape [batch, context_size, layer_size].
+            x (torch.Tensor): The input tensor.
         """
-        assert (
-            x.shape[1] == self.config["context_size"]
-        ), f"x.shape: {x.shape}, expect: {self.config['context_size']}"
-
+        # Only calculate the 2-norm on the last dimensions.
         norm_x = x.norm(p=2, dim=-1, keepdim=True)
-        d_x = self.layer_shape
-
-        rms_x = norm_x * d_x**-0.5
+        rms_x = self.layer_size**-0.5 * norm_x
         x_normed = x / (rms_x + self.eps)
-
-        if self.bias:
+        if self.has_bias:
             return self.scale * x_normed + self.bias
         else:
             return self.scale * x_normed
