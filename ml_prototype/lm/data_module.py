@@ -21,7 +21,9 @@ class InMemoryDataset(Dataset):
         return self.num_samples
 
     def __getitem__(self, idx):
-        """Random sample from lines by randoming chosing the start position, and sample a subsequence with length of context_size."""
+        """Random sample from lines by randoming chosing the start position,
+        and sample a subsequence with length of context_size.
+        """
         i = torch.randint(0, len(self.lines) - self.context_size - 1, (1,))
         x = torch.Tensor(
             [self.stoi[c] for c in self.lines[i : i + self.context_size]]
