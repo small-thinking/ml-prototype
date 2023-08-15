@@ -1,10 +1,12 @@
 """
 """
 import abc
+import math
 from typing import Any, Dict, List
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class LanguageModule(nn.Module, abc.ABC):
@@ -56,32 +58,144 @@ class RMSNorm(nn.Module):
             return self.scale * x_normed
 
 
+class MultiHeadAttention(nn.Module):
+    """A multi head attention."""
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        # Validate parameters.
+        self.config = config
+        if "input_dim" not in config:
+            raise ValueError("input_dim must be specified in config")
+        self.input_dim = config["input_dim"]
+        self.num_heads = config.get("num_heads", 4)
+        self.dim_model = config.get("dim_model", self.num_heads * 128)
+        assert (
+            self.dim_model % self.num_heads == 0
+        ), f"dim_model must be multiplier of num_heads: dim_model: {self.dim_model}, num_heads: {self.num_heads}"
+        self.dim_head = self.dim_model // self.num_heads
+        # Weights for self-attention.
+        self.W_Q = nn.Linear(self.input_dim, self.dim_model)
+        self.W_K = nn.Linear(self.input_dim, self.dim_model)
+        self.W_V = nn.Linear(self.input_dim, self.dim_model)
+        self.W_O = nn.Linear(self.dim_model, self.dim_model)
+
+    def _scaled_dot_product_attention(
+        self,
+        Q: torch.Tensor,
+        K: torch.Tensor,
+        V: torch.Tensor,
+        mask: torch.Tensor = None,
+    ):
+        """Apply scaled dot product attention. The input Q, K, V are already splitted into heads.
+        Args:
+            Q (torch.Tensor): The query tensor. Expected dimension of (batch_size, num_heads, context_size, dim_head).
+            K (torch.Tensor): The key tensor. Expected dimension of (batch_size, num_heads, context_size, dim_head).
+            V (torch.Tensor): The value tensor. Expected dimension of (batch_size, num_heads, context_size, dim_head).
+            mask (torch.Tensor, optional): The mask tensor. Defaults to None.
+
+        Return:
+            torch.Tensor: The output tensor. Expected dimension of (batch_size, num_heads, context_size, dim_head).
+        """
+        # Calculate the scaled dot product attention. attn_scores = QK^T / sqrt(dim_head).
+        attn_scores = (Q @ K.transpose(-2, -1)) / math.sqrt(self.dim_head)
+        if mask is not None:
+            attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
+        # Calculate the softmax. formula: softmax(attn_scores).
+        attn_probs = F.softmax(attn_scores, dim=-1)
+        # Calculate the attention output. formula: V * softmax(attn_scores) * Q.
+        attn_output = torch.matmul(attn_probs, V)
+        return attn_output
+
+    def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
+        """Not really split, but a reshape of the matrix into sub-space.
+
+        Args:
+            x (torch.Tensor): The input tensor, with expected dimenions of (batch_size, context_size, dim_model).
+        """
+        batch_size, context_size, _ = x.shape
+        # After reshaping, the dimension is expected to be (batch_size, num_heads, context_size, dim_head).
+        return x.reshape(
+            batch_size, context_size, self.num_heads, self.dim_head
+        ).transpose(1, 2)
+
+    def _combine_heads(self, x: torch.Tensor) -> torch.Tensor:
+        """Combine the sub-space back to the matrix.
+
+        Args:
+            x (torch.Tensor): The input tensor, expected dimenions of (batch_size, num_heads, context_size, dim_head).
+        """
+        batch_size, num_heads, context_size, dim_head = x.shape
+        return x.transpose(1, 2).reshape(batch_size, context_size, num_heads * dim_head)
+
+    def forward(
+        self,
+        Q: torch.Tensor,
+        K: torch.Tensor,
+        V: torch.Tensor,
+        mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        """Perform multi-head attention. Q, K, V, are expected to be the same.
+        Args:
+            Q (torch.Tensor): The query tensor. Expected dimension of (batch_size, context_size, input_dim).
+            K (torch.Tensor): The key tensor. Expected dimension of (batch_size, context_size, input_dim).
+            V (torch.Tensor): The value tensor. Expected dimension of (batch_size, context_size, input_dim).
+            mask (torch.Tensor, optional): The mask tensor. Defaults to None.
+        """
+        # Linear layer for self-attention.
+        Q = self._split_heads(self.W_Q(Q))
+        K = self._split_heads(self.W_K(K))
+        V = self._split_heads(self.W_V(V))
+        # Calculate the attention output.
+        attn_output = self._scaled_dot_product_attention(Q, K, V, mask)
+        # Combine the sub-space back to the matrix.
+        output = self.W_O(self._combine_heads(attn_output))
+        return output
+
+
 class ScaledDotProductAttention(nn.Module):
     def __init__(self, temperature: int = 1.0, dropout_ratio: int = 0.0):
         super().__init__()
         self.temperature = temperature
         self.dropout = nn.Dropout(dropout_ratio)
 
-    def forward(self, q, k, v) -> torch.Tensor:
+    def forward(
+        self,
+        Q: torch.Tensor,
+        K: torch.Tensor,
+        V: torch.Tensor,
+        mask: torch.Tensor = None,
+    ) -> torch.Tensor:
         """Forward pass for Scaled Dot Product Attention.
         An implementation of softmax(QK^T/sqrt(d_k)) * V.
 
         Args:
-            q (torch.Tensor): The query tensor, in shape [n, q_len, d_k].
-            k (torch.Tensor): The key tensor, in shape [n, k_len, d_k].
-            v (torch.Tensor): The value tensor, in shape [n, k_len, d_v].
+            Q (torch.Tensor): The query tensor, in shape [n, q_len, num_heads, d_k].
+            K (torch.Tensor): The key tensor, in shape [n, k_len, num_heads, d_k].
+            V (torch.Tensor): The value tensor, in shape [n, v_len, num_heads, d_v].
+            mask (torch.Tensor, optional): The mask tensor. Defaults to None. Expected shape [n, q_len, k_len].
 
         Returns:
-            torch.Tensor: The context vector after attention, in shape [n, k_len, d_v].
+            torch.Tensor: The context vector after attention, in shape [n, q_len, num_heads, d_v].
         """
-        dk = q.shape[-1]
-        attn = (q @ k) / math.sqrt(dk)
-        attn = F.softmax(attn / self.temperature, dim=-1)
-        output = torch.matmul(self.dropout(attn), v)
+        d_k = Q.shape[-1]
+        attn = (Q @ K.transpose(-2, -1)) / math.sqrt(
+            d_k
+        )  # Shape: [n, q_len, num_heads, k_len]
+        if mask is not None:
+            attn = attn.masked_fill(
+                mask == 0, -1e9
+            )  # Shape: [n, q_len, num_heads, k_len]
+        attn = F.softmax(
+            attn / self.temperature, dim=-1
+        )  # Shape: [n, q_len, num_heads, k_len]
+        output = torch.matmul(
+            self.dropout(attn), V
+        )  # Shape: [n, q_len, num_heads, d_v]
         return output
 
 
-class Attention(nn.Module):
+class MultiHeadAttentionLayer(nn.Module):
     def __init__(
         self,
         embed_size: int,
@@ -91,49 +205,42 @@ class Attention(nn.Module):
         dropout_ratio: int = 0.0,
     ):
         """Constructor of the Attention class."""
-        super(Attention, self).__init__()
-
+        super(MultiHeadAttentionLayer, self).__init__()
         self.embed_size = embed_size
         self.hidden_size = hidden_size
         self.num_heads = num_heads
-
         # Split embedding size into heads, validated by `embed_size % num_heads == 0`.
         assert (
             embed_size % num_heads == 0
         ), f"embed_size ({embed_size}) must be divisible by num_heads ({num_heads})."
         self.head_size = embed_size // num_heads
-
         # Initialize linear layers for projection and query.
-        self.q = nn.Linear(self.hidden_size, self.embed_size)
-        self.k = nn.Linear(self.hidden_size, self.embed_size)
-        self.v = nn.Linear(self.hidden_size, self.embed_size)
-
+        self.W_Q = nn.Linear(self.hidden_size, self.embed_size)
+        self.W_K = nn.Linear(self.hidden_size, self.embed_size)
+        self.W_V = nn.Linear(self.hidden_size, self.embed_size)
         # Scaled dot product layer.
         self.scaled_dot_product_attention = ScaledDotProductAttention(
             temperature=temperature, dropout_ratio=dropout_ratio
         )
-
         # Output projection layer.
         self.output = nn.Linear(self.embed_size, self.hidden_size)
 
-        # Allow registering additional attention layers.
-        self.attention_layers = nn.ModuleDict()
-
     def forward(
         self,
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
+        Q: torch.Tensor,
+        K: torch.Tensor,
+        V: torch.Tensor,
         mask: torch.Tensor = None,
     ):
         """
-        Forward pass for the Attention module.
+        Forward pass for the Attention module. For self-attention, the query, key and value are all the same.
 
         Parameters:
-        q (torch.Tensor): The query for attention, with shape (batch_size, hidden_size).
-        k (torch.Tensor): The keys for attention, with shape (batch_size, seq_len, hidden_size).
-        v (torch.Tensor): The values for attention, with shape (batch_size, seq_len, hidden_size).
-        mask (torch.Tensor, optional): The attention mask, with shape (batch_size, seq_len). 1 indicates valid token, 0 indicates padding.
+        Q (torch.Tensor): The query for attention, with shape (batch_size, seq_len, hidden_size).
+        K (torch.Tensor): The keys for attention, with shape (batch_size, seq_len, hidden_size).
+        V (torch.Tensor): The values for attention, with shape (batch_size, seq_len, hidden_size).
+        mask (torch.Tensor, optional): The attention mask, with shape (batch_size, seq_len).
+            Defaults to None, or 1 indicates valid token, 0 indicates padding.
 
         Returns:
         torch.Tensor: The context vector after attention, with shape (batch_size, hidden_size).
@@ -145,22 +252,21 @@ class Attention(nn.Module):
         4. Concatenate the attention outputs of each head.
         5. Project the concatenated output through the output linear layer.
         """
-        N = q.shape[0]
-
-        q_len, k_len, v_len = q.shape[1], k.shape[1], v.shape[1]
+        N = Q.shape[0]
+        q_len, k_len, v_len = Q.shape[1], K.shape[1], V.shape[1]
 
         # Apply projection layer.
-        q = self.query(q)
-        k = self.key(k)
-        v = self.value(v)
+        Q = self.W_Q(Q)
+        K = self.W_K(K)
+        V = self.W_V(V)
 
         # Reshape for multi-head attention.
-        q = q.reshape(N, q_len, self.num_heads, self.head_size)
-        k = k.reshape(N, k_len, self.num_heads, self.head_size)
-        v = v.reshape(N, v_len, self.num_heads, self.head_size)
+        Q = Q.reshape(N, q_len, self.num_heads, self.head_size)
+        K = K.reshape(N, k_len, self.num_heads, self.head_size)
+        V = V.reshape(N, v_len, self.num_heads, self.head_size)
 
         # Compute scaled dot-product attention.
-        attn = self.scaled_dot_product_attention(q, k, v)
+        attn = self.scaled_dot_product_attention(Q, K, V)
 
         # Reshape for multi-head attention.
         attn = attn.reshape(N, q_len, self.num_heads * self.head_size)

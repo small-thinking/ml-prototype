@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from ml_prototype.lm.module import RMSNorm
+from ml_prototype.lm.module import MultiHeadAttention, RMSNorm
 
 
 @pytest.mark.parametrize(
@@ -28,3 +28,82 @@ def test_rmsnorm(input_shape, layer_size, eps, has_bias):
 
     # Check that the output is not all zeros
     assert torch.any(output != 0)
+
+
+class TestMultiHeadAttention:
+    def test_initialization(self):
+        config = {
+            "input_dim": 16,
+            "num_heads": 8,
+            "dim_model": 256,
+        }
+        mha = MultiHeadAttention(config)
+        assert mha.input_dim == 16
+        assert mha.num_heads == 8
+        assert mha.dim_model == 256
+        assert mha.dim_head == 32
+
+    @pytest.mark.parametrize(
+        "batch_size, context_size, input_dim, dim_model, num_heads",
+        [(64, 50, 16, 256, 8), (32, 100, 16, 512, 4)],
+    )
+    def test_split_and_combine_heads(
+        self, batch_size, context_size, input_dim, dim_model, num_heads
+    ):
+        config = {
+            "input_dim": input_dim,
+            "num_heads": num_heads,
+            "dim_model": dim_model,
+        }
+        mha = MultiHeadAttention(config)
+        x = torch.rand(batch_size, context_size, dim_model)
+        split_heads = mha._split_heads(x)
+        assert split_heads.shape == (
+            batch_size,
+            num_heads,
+            context_size,
+            dim_model // num_heads,
+        )
+        combined_heads = mha._combine_heads(split_heads)
+        assert combined_heads.shape == (batch_size, context_size, dim_model)
+
+    @pytest.mark.parametrize(
+        "batch_size, context_size, input_dim, dim_model, num_heads",
+        [(64, 50, 16, 256, 8), (32, 100, 16, 512, 4)],
+    )
+    def test_scaled_dot_product_attention(
+        self, batch_size, context_size, input_dim, dim_model, num_heads
+    ):
+        config = {
+            "input_dim": input_dim,
+            "num_heads": num_heads,
+            "dim_model": dim_model,
+        }
+        mha = MultiHeadAttention(config)
+        Q = torch.rand(batch_size, num_heads, context_size, dim_model // num_heads)
+        K = torch.rand(batch_size, num_heads, context_size, dim_model // num_heads)
+        V = torch.rand(batch_size, num_heads, context_size, dim_model // num_heads)
+        attn_output = mha._scaled_dot_product_attention(Q, K, V)
+        assert attn_output.shape == (
+            batch_size,
+            num_heads,
+            context_size,
+            dim_model // num_heads,
+        )
+
+    @pytest.mark.parametrize(
+        "batch_size, context_size, input_dim, dim_model, num_heads",
+        [(64, 50, 16, 256, 8), (32, 100, 16, 512, 4)],
+    )
+    def test_forward(self, batch_size, context_size, input_dim, dim_model, num_heads):
+        config = {
+            "input_dim": input_dim,
+            "num_heads": num_heads,
+            "dim_model": dim_model,
+        }
+        mha = MultiHeadAttention(config)
+        Q = torch.rand(batch_size, context_size, input_dim)
+        K = torch.rand(batch_size, context_size, input_dim)
+        V = torch.rand(batch_size, context_size, input_dim)
+        output = mha.forward(Q, K, V)
+        assert output.shape == (batch_size, context_size, dim_model)

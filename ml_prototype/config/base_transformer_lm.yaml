@@ -1,0 +1,45 @@
+seed_everything: 42
+trainer:
+  max_epochs: 3
+  accelerator: cpu
+  logger:
+    class_path: lightning.pytorch.loggers.TensorBoardLogger
+    init_args:
+      save_dir: ./lightning_logs
+      name: transformer-c16-b128-rmsn
+  callbacks:
+    class_path: lm.model.DummyCallback
+
+model:
+  class_path: lm.model.Seq2SeqLM
+  init_args:
+    model:
+      class_path: lm.module.TransformerDecoderWrapper
+      init_args:
+        config:
+          vocab_size: 65
+          context_size: &context_size 16
+          nhead: 4
+          num_decoder_layers: 1
+          dim_feedforward: 128
+          batch_first: true
+          norm_first: true
+    loss:
+      class_path: torch.nn.CrossEntropyLoss
+    
+data:
+  class_path: lm.data_module.InMemoryDataModule
+  init_args:
+    config:
+      data_path: ~/Downloads/test_data.txt
+      samples_per_epoch: 100000
+      batch_size: 128
+      context_size: *context_size
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 0.001
+    weight_decay: 0.01
+
+  
