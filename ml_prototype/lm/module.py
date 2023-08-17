@@ -368,10 +368,10 @@ class TransformerLM(LanguageModule):
 
         Returns:
             torch.Tensor: The output tensor after passing through the embedding and transformer layers.
-                Shape: [batch_size, seq_len, embed_dim].
+                Shape: [batch_size, seq_len, vocab_size].
         """
         x = self.embedding(x)
         x = self.position_embedding(x)
         x = self.stacked_transformer(x)
-        x = self.projection_layer(x)
-        return x
+        logits = self.projection_layer(x)
+        return logits
