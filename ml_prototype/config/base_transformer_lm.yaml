@@ -1,7 +1,7 @@
 seed_everything: 42
 trainer:
   max_epochs: 10
-  accelerator: cpu
+  accelerator: mps
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
     init_args:
@@ -25,7 +25,7 @@ model:
           ffm_layer_sizes: [256, 256]
           batch_first: true
           norm_first: true
-          dropout_ratio: 0.0
+          dropout_ratio: 0.2
     loss:
       class_path: torch.nn.CrossEntropyLoss
     vocab_size: *vocab_size
