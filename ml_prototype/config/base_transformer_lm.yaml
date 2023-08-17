@@ -1,11 +1,12 @@
 seed_everything: 42
 trainer:
   max_epochs: 10
+  accelerator: mps
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
     init_args:
       save_dir: ./lightning_logs
-      name: feedforward-c16-b128-rmsn
+      name: 1-transformer-256-c16-b128-rmsn
   callbacks:
     class_path: lm.model.DummyCallback
 
@@ -13,16 +14,17 @@ model:
   class_path: lm.model.Seq2SeqLM
   init_args:
     model:
-      class_path: lm.module.FeedForwardLM
+      class_path: lm.module.TransformerLM
       init_args:
         config:
-          context_size: &context_size 16
           vocab_size: &vocab_size 65
-          has_embedding: true
+          context_size: &context_size 16
           embed_dim: 256
-          pre_norm: true
-          norm_type: rms_norm
-          add_last_layer: true
+          num_heads: 4
+          num_layers: 1
+          ffm_layer_sizes: [256, 256]
+          batch_first: true
+          norm_first: true
           dropout_ratio: 0.2
     loss:
       class_path: torch.nn.CrossEntropyLoss
