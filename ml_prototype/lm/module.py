@@ -1,6 +1,7 @@
 """
 """
 import abc
+import math
 from typing import Any, Dict, List
 
 import torch
@@ -306,6 +307,22 @@ class StackedTransformer(nn.Module):
         return x
 
 
+class SinCosPositionalEmbedding(nn.Module):
+    def __init__(self, seq_len: int, embed_dim: int):
+        super().__init__()
+        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim)
+        )
+        pos_emb = torch.zeros(seq_len, embed_dim)
+        pos_emb[:, 0::2] = torch.sin(position * div_term)
+        pos_emb[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pos_emb", pos_emb)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.pos_emb[: x.size(1), :]
+
+
 class TransformerLM(LanguageModule):
     """TransformerLM is a language model that leverages the transformer architecture.
     It consists of an embedding layer followed by a stack of transformer blocks.
@@ -336,6 +353,9 @@ class TransformerLM(LanguageModule):
         assert "vocab_size" in config, "vocab_size must be specified in config"
         vocab_size = config["vocab_size"]
         self.embedding = nn.Embedding(vocab_size, embed_dim)
+        self.position_embedding = SinCosPositionalEmbedding(
+            seq_len=config["context_size"], embed_dim=config["embed_dim"]
+        )
         self.stacked_transformer = StackedTransformer(config)
         self.projection_layer = nn.Linear(embed_dim, vocab_size)
 
@@ -351,6 +371,7 @@ class TransformerLM(LanguageModule):
                 Shape: [batch_size, seq_len, embed_dim].
         """
         x = self.embedding(x)
+        x = self.position_embedding(x)
         x = self.stacked_transformer(x)
         x = self.projection_layer(x)
         return x
