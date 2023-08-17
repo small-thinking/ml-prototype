@@ -169,21 +169,22 @@ class Attention(nn.Module):
         return output
 
 
-class FeedForwardModel(LanguageModule):
+class FeedForwardModel(nn.Module):
     def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+        super().__init__()
+        assert "input_dim" in config, "FeedForwardModel requires an input_dim."
+        assert "vocab_size" in config, "FeedForwardModel requires a vocab_size."
+        self.config = config
+        input_dim, vocab_size = config["input_dim"], config["vocab_size"]
         layers = []
-        layer_sizes = self.config.get("layer_sizes", [64, 64])
-        assert "vocab_size" in self.config, "vocab_size must be specified in config"
-        self.vocab_size = self.config["vocab_size"]
-        # Add embedding layer if any.
-        if self.config.get("has_embedding", False):
-            embedding = nn.Embedding(self.vocab_size, layer_sizes[0])
-            layers.append(embedding)
+        layer_sizes = config.get("layer_sizes", [64, 64])
         for i in range(len(layer_sizes) - 1):
-            self._add_layer(layers, layer_sizes[i], layer_sizes[i + 1])
+            if i == 0:
+                self._add_layer(layers, input_dim, layer_sizes[i])
+            else:
+                self._add_layer(layers, layer_sizes[i], layer_sizes[i + 1])
         # Add the last layer.
-        self._add_layer(layers, layer_sizes[-1], self.vocab_size, is_last_layer=True)
+        self._add_layer(layers, layer_sizes[-1], vocab_size, is_last_layer=True)
         self.ffm = nn.Sequential(*layers)
 
     def _add_layer(
@@ -216,7 +217,25 @@ class FeedForwardModel(LanguageModule):
             elif norm_type == "rms_norm":
                 layers.append(RMSNorm(self.config, out_size))
 
-    def forward(self, batch) -> torch.Tensor:
-        """Conduct a batch inference."""
+    def forward(self, batch: torch.Tensor) -> torch.Tensor:
+        """Conduct a batch inference.
+        The batch is expected to be in shape of [batch_size, seq_len, input_dim].
+        """
         x = self.ffm(batch)
+        return x
+
+
+class FeedForwardLM(LanguageModule):
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        assert "input_dim" in config, "input_dim must be specified in config"
+        input_dim = config["input_dim"]
+        assert "vocab_size" in config, "vocab_size must be specified in config"
+        vocab_size = config["vocab_size"]
+        self.embedding = nn.Embedding(vocab_size, input_dim)
+        self.feed_forward = FeedForwardModel(config)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.embedding(x)
+        x = self.feed_forward(x)
         return x
