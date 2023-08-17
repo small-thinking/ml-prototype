@@ -172,19 +172,21 @@ class Attention(nn.Module):
 class FeedForwardModel(nn.Module):
     def __init__(self, config: Dict[str, Any]):
         super().__init__()
-        assert "input_dim" in config, "FeedForwardModel requires an input_dim."
+        assert "embed_dim" in config, "FeedForwardModel requires an embed_dim."
         assert "vocab_size" in config, "FeedForwardModel requires a vocab_size."
         self.config = config
-        input_dim, vocab_size = config["input_dim"], config["vocab_size"]
+        embed_dim, vocab_size = config["embed_dim"], config["vocab_size"]
         layers = []
-        layer_sizes = config.get("layer_sizes", [64, 64])
+        assert (
+            "ffm_layer_sizes" in config
+        ), "ffm_layer_sizes must be specified in config"
+        layer_sizes = config["ffm_layer_sizes"]
+        self._add_layer(layers, embed_dim, layer_sizes[0])
         for i in range(len(layer_sizes) - 1):
-            if i == 0:
-                self._add_layer(layers, input_dim, layer_sizes[i])
-            else:
-                self._add_layer(layers, layer_sizes[i], layer_sizes[i + 1])
+            self._add_layer(layers, layer_sizes[i], layer_sizes[i + 1])
         # Add the last layer.
-        self._add_layer(layers, layer_sizes[-1], vocab_size, is_last_layer=True)
+        if config.get("add_last_layer", False):
+            self._add_layer(layers, layer_sizes[-1], vocab_size, is_last_layer=True)
         self.ffm = nn.Sequential(*layers)
 
     def _add_layer(
@@ -228,14 +230,127 @@ class FeedForwardModel(nn.Module):
 class FeedForwardLM(LanguageModule):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        assert "input_dim" in config, "input_dim must be specified in config"
-        input_dim = config["input_dim"]
+        assert "embed_dim" in config, "embed_dim must be specified in config"
+        embed_dim = config["embed_dim"]
         assert "vocab_size" in config, "vocab_size must be specified in config"
         vocab_size = config["vocab_size"]
-        self.embedding = nn.Embedding(vocab_size, input_dim)
+        self.embedding = nn.Embedding(vocab_size, embed_dim)
         self.feed_forward = FeedForwardModel(config)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.embedding(x)
         x = self.feed_forward(x)
+        return x
+
+
+class TransformerBlock(nn.Module):
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        self.embed_dim = config.get("embed_dim", 256)
+        self.num_heads = config.get("num_heads", 4)
+        self.dropout_ratio = config.get("dropout_ratio", 0.0)
+
+        self.attention = nn.MultiheadAttention(
+            embed_dim=self.embed_dim,
+            num_heads=self.num_heads,
+            dropout=self.dropout_ratio,
+            batch_first=True,
+        )
+        config.update({"ffm_layer_sizes": [self.embed_dim, self.embed_dim]})
+        self.feed_forward = FeedForwardModel(config)
+
+        self.norm1 = nn.LayerNorm(self.embed_dim)
+        self.norm2 = nn.LayerNorm(self.embed_dim)
+
+        self.dropout = nn.Dropout(self.dropout_ratio)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass for the Transformer block.
+
+        Args:
+            x (torch.Tensor): The input tensor. Shape: [batch_size, seq_len, embed_dim].
+        """
+        assert (
+            x.shape[-1] == self.embed_dim
+        ), f"x.shape: {x.shape}, embed_dim: {self.embed_dim}"
+        # Attention with residual.
+        x = self.norm1(x)
+        attn_output, _ = self.attention(x, x, x)
+        x = x + self.dropout(attn_output)
+        # Feed forward with residual.
+        x = self.norm2(x)
+        ff_output = self.feed_forward(x)
+        x = x + self.dropout(ff_output)
+        return x
+
+
+class StackedTransformer(nn.Module):
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        self.config = config
+        self.num_layers = config.get("num_layers", 1)
+        self.embed_dim = config.get("embed_dim", 256)
+        # List to hold the transformer blocks
+        layers = []
+        for _ in range(self.num_layers):
+            layers.append(TransformerBlock(config))
+        self.stack = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass for the Stacked Transformer.
+        Args:
+            x (torch.Tensor): The input tensor. Shape: [batch_size, seq_len, embed_dim].
+        """
+        # Pass the input through the stacked transformer blocks
+        x = self.stack(x)
+        return x
+
+
+class TransformerLM(LanguageModule):
+    """TransformerLM is a language model that leverages the transformer architecture.
+    It consists of an embedding layer followed by a stack of transformer blocks.
+
+    Args:
+        config (Dict[str, Any]): Configuration dictionary containing parameters for the model.
+            - "input_dim": The dimension of the input embeddings.
+            - "vocab_size": The size of the vocabulary.
+            - Other parameters required by the StackedTransformer class.
+
+    Example usage:
+        config = {
+            "vocab_size": 10000,
+            "num_layers": 4,
+            "embed_dim": 256,
+            "num_heads": 8,
+            "dropout": 0.1
+        }
+        model = TransformerLM(config)
+        x = torch.Tensor(batch_size, seq_len).long()
+        output = model(x)
+    """
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        assert "embed_dim" in config, "embed_dim must be specified in config"
+        embed_dim = config["embed_dim"]
+        assert "vocab_size" in config, "vocab_size must be specified in config"
+        vocab_size = config["vocab_size"]
+        self.embedding = nn.Embedding(vocab_size, embed_dim)
+        self.stacked_transformer = StackedTransformer(config)
+        self.projection_layer = nn.Linear(embed_dim, vocab_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass for the TransformerLM.
+
+        Args:
+            x (torch.Tensor): The input tensor containing token IDs.
+                Shape: [batch_size, seq_len, embed_dim].
+
+        Returns:
+            torch.Tensor: The output tensor after passing through the embedding and transformer layers.
+                Shape: [batch_size, seq_len, embed_dim].
+        """
+        x = self.embedding(x)
+        x = self.stacked_transformer(x)
+        x = self.projection_layer(x)
         return x
