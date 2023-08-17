@@ -13,17 +13,19 @@ model:
   class_path: lm.model.Seq2SeqLM
   init_args:
     model:
-      class_path: lm.module.FeedForwardModel
+      class_path: lm.module.FeedForwardLM
       init_args:
         config:
           context_size: &context_size 16
           vocab_size: &vocab_size 65
           has_embedding: true
+          input_dim: 64
           layer_sizes: [128, 128]
           pre_norm: true
           norm_type: rms_norm
     loss:
       class_path: torch.nn.CrossEntropyLoss
+    vocab_size: *vocab_size
     
 data:
   class_path: lm.data_module.InMemoryDataModule

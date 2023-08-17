@@ -21,11 +21,11 @@ class DummyCallback(pl.Callback):
 
 
 class Seq2SeqLM(pl.LightningModule):
-    def __init__(self, model: LanguageModule, loss: nn.Module):
+    def __init__(self, model: LanguageModule, loss: nn.Module, vocab_size: int):
         super().__init__()
         self.model = model
         self.loss = loss
-        self.vocab_size = self.model.vocab_size
+        self.vocab_size = vocab_size
 
     def forward(self, x):
         return x
