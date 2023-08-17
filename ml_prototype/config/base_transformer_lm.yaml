@@ -6,7 +6,7 @@ trainer:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
     init_args:
       save_dir: ./lightning_logs
-      name: 1-transformer-256-c16-b128-rmsn
+      name: 1-transformer-256-c16-b128-rmsn-pos
   callbacks:
     class_path: lm.model.DummyCallback
 
