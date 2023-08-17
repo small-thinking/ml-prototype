@@ -6,9 +6,16 @@ trainer:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
     init_args:
       save_dir: ./lightning_logs
-      name: 1-transformer-256-c16-b128-rmsn-pos
+      name: 1-transformer-256-c128-b128-rmsn-pos
   callbacks:
     class_path: lm.model.DummyCallback
+    class_path: lm.model.TorchScriptCallback
+    init_args:
+      config:
+        batch_size: &batch_size 128
+        context_size: &context_size 128
+        vocab_size: &vocab_size 65
+
 
 model:
   class_path: lm.model.Seq2SeqLM
@@ -17,8 +24,8 @@ model:
       class_path: lm.module.TransformerLM
       init_args:
         config:
-          vocab_size: &vocab_size 65
-          context_size: &context_size 16
+          vocab_size: *vocab_size
+          context_size: *context_size
           embed_dim: 256
           num_heads: 4
           num_layers: 1
@@ -36,7 +43,7 @@ data:
     config:
       data_path: ~/Downloads/test_data.txt
       samples_per_epoch: 100000
-      batch_size: 128
+      batch_size: *batch_size
       context_size: *context_size
 
 optimizer:
