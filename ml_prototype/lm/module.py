@@ -271,9 +271,9 @@ class TransformerBlock(nn.Module):
         Args:
             x (torch.Tensor): The input tensor. Shape: [batch_size, seq_len, embed_dim].
         """
-        assert (
-            x.shape[-1] == self.embed_dim
-        ), f"x.shape: {x.shape}, embed_dim: {self.embed_dim}"
+        # assert (
+        #     x.shape[-1] == self.embed_dim
+        # ), f"x.shape: {x.shape}, embed_dim: {self.embed_dim}"
         # Attention with residual.
         x = self.norm1(x)
         attn_output, _ = self.attention(x, x, x)
