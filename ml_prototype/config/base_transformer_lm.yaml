@@ -1,6 +1,6 @@
 seed_everything: 42
 trainer:
-  max_epochs: 1
+  max_epochs: 10
   accelerator: mps
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
@@ -26,10 +26,10 @@ model:
         config:
           vocab_size: *vocab_size
           context_size: *context_size
-          embed_dim: 64
+          embed_dim: 128
           num_heads: 4
           num_layers: 1
-          ffm_layer_sizes: [64, 64]
+          ffm_layer_sizes: [128, 128]
           batch_first: true
           norm_first: true
           dropout_ratio: 0.2
