@@ -364,7 +364,7 @@ class TransformerLM(LanguageModule):
 
         Args:
             x (torch.Tensor): The input tensor containing token IDs.
-                Shape: [batch_size, seq_len, embed_dim].
+                Shape: [batch_size, seq_len].
 
         Returns:
             torch.Tensor: The output tensor after passing through the embedding and transformer layers.
