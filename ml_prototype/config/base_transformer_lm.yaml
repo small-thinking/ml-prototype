@@ -1,6 +1,6 @@
 seed_everything: 42
 trainer:
-  max_epochs: 10
+  max_epochs: 1
   accelerator: mps
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
