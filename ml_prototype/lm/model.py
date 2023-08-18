@@ -32,10 +32,7 @@ class TorchScriptCallback(pl.Callback):
         model = (
             pl_module.model
         )  # Assuming the actual model is stored in 'model' attribute
-        example_input = torch.randint(
-            0, self.vocab_size, (self.batch_size, self.context_size), dtype=torch.long
-        )
-        scripted_model = torch.jit.trace(model, example_input)
+        scripted_model = torch.jit.script(model)
         print("Save torch script model...")
         torch.jit.save(scripted_model, f"model.pt")
         print("Torch script model saved.")
