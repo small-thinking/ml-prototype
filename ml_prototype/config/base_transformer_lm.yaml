@@ -26,10 +26,10 @@ model:
         config:
           vocab_size: *vocab_size
           context_size: *context_size
-          embed_dim: 256
+          embed_dim: 128
           num_heads: 4
           num_layers: 1
-          ffm_layer_sizes: [256, 256]
+          ffm_layer_sizes: [128, 128]
           batch_first: true
           norm_first: true
           dropout_ratio: 0.2
@@ -42,7 +42,7 @@ data:
   init_args:
     config:
       data_path: ~/Downloads/test_data.txt
-      samples_per_epoch: 100000
+      samples_per_epoch: 10000
       batch_size: *batch_size
       context_size: *context_size
 
