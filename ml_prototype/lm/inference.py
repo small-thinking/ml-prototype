@@ -17,27 +17,55 @@ class InferenceEngine:
     def inference(self, text: str, max_length: int = 50):
         # Tokenize the input text
         input_tensor = self.tokenizer.encode([text])
+        input_tensor = torch.LongTensor(input_tensor).unsqueeze(
+            0
+        )  # Add batch dimension
 
-        # Generate predictions
+        # Initialize generated sequence with the input tensor
+        generated_sequence = input_tensor
+
+        # Generate predictions in an autoregressive way
         with torch.no_grad():
-            logits = self.model(input_tensor)
+            # for _ in range(1):
+            for _ in range(max_length - len(input_tensor[0])):
+                logits = self.model(generated_sequence)
+                # Take the logits corresponding to the last token
+                last_logits = logits[:, -1, :]
+                # Apply a softmax to get probabilities
+                probabilities = softmax(last_logits, dim=-1)
+                # Get the most likely token
+                next_token = (
+                    torch.argmax(probabilities, dim=-1).unsqueeze(0).unsqueeze(1)
+                )
 
-        # Apply a softmax to get probabilities
-        probabilities = softmax(logits, dim=-1)
+                # Check whether the generated sequence is less than context_size
+                if generated_sequence.size(1) < max_length:
+                    # Append the next token without removing any tokens
+                    generated_sequence = torch.cat(
+                        [generated_sequence, next_token], dim=1
+                    )
+                else:
+                    # Remove the first token and append the next token
+                    generated_sequence = generated_sequence[:, 1:]
+                    generated_sequence = torch.cat(
+                        [generated_sequence, next_token], dim=1
+                    )
 
-        # Decode the output tensor to text
-        decoded_text = self.tokenizer.decode(logits.argmax(dim=-1))
+        # Decode the generated sequence to text
+        decoded_text = self.tokenizer.decode(generated_sequence[0])
 
-        return decoded_text, probabilities
+        return decoded_text
 
 
 def main():
     doc_file_path = os.path.expanduser("~/Downloads/test_data.txt")
     tokenizer = NaiveTokenizer(config={}, doc_file_path=doc_file_path)
-    inference_engine = InferenceEngine(tokenizer=tokenizer, jit_model_path="model.pt")
+    inference_engine = InferenceEngine(
+        tokenizer=tokenizer, jit_model_path="../model.pt"
+    )
 
     text = "The quick brown fox"
-    decoded_text, probabilities = inference_engine.inference(text[:16])
+    decoded_text = inference_engine.inference(text[:16])
 
     print("Predicted Text:", decoded_text)
 
