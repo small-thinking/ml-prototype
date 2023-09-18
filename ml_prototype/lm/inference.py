@@ -58,7 +58,7 @@ def main():
         jit_model_path=os.path.join(os.path.dirname(__file__), "../../model.pt"),
     )
 
-    text = "This is hello world oooABC our"
+    text = "This is hello world. This is our"
     decoded_text = inference_engine.inference(text[:128])
 
     print(f"Predicted Text: [{decoded_text}]")
