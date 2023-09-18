@@ -51,16 +51,28 @@ class Seq2SeqLM(pl.LightningModule):
     def training_step(self, batch, batch_idx) -> Dict[str, float]:
         x, y = batch
         config = self.model.config
+        vocab_size = config["vocab_size"]  # Assuming vocab_size is in the config
+
+        # Ensure the shape of y is as expected
         assert y.shape[1:] == (
             config["context_size"],
         ), f"Training_step: y.shape: {y.shape}, expect: {-1, config['context_size']}"
+
+        # Forward pass
         y_hat = self.model(x)
-        loss = self.loss(
-            y_hat.view(-1, self.vocab_size),
-            y.view(-1),
-        )
+
+        # Ensure the shape of y_hat is as expected
+        assert y_hat.shape == torch.Size(
+            [x.shape[0], config["context_size"], vocab_size]
+        ), f"y_hat.shape: {y_hat.shape}, expect: {torch.Size([x.shape[0], config['context_size'], vocab_size])}"
+
+        # Calculate loss
+        loss = self.loss(y_hat.view(-1, vocab_size), y.view(-1))
+
+        # Log metrics
         metric_dict = {"loss": loss}
         self.log_dict(metric_dict, prog_bar=True, on_epoch=True, on_step=False)
+
         return metric_dict
 
     def validation_step(self, batch, batch_idx):

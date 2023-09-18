@@ -1,6 +1,6 @@
 seed_everything: 42
 trainer:
-  max_epochs: 1
+  max_epochs: 10
   accelerator: mps
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
@@ -41,7 +41,7 @@ data:
   class_path: lm.data_module.InMemoryDataModule
   init_args:
     config:
-      data_path: ~/Downloads/test_data.txt
+      data_path: ~/Downloads/hume.txt
       samples_per_epoch: 10000
       batch_size: *batch_size
       context_size: *context_size

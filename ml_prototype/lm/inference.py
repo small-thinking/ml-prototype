@@ -1,10 +1,8 @@
 import os
 
 import torch
+from tokenizer import NaiveTokenizer, Tokenizer
 from torch.nn.functional import softmax
-
-from ml_prototype.lm.module import LanguageModule, TransformerLM
-from ml_prototype.lm.tokenizer import NaiveTokenizer, Tokenizer
 
 
 class InferenceEngine:
@@ -23,14 +21,14 @@ class InferenceEngine:
 
         # Generate predictions in an autoregressive way
         with torch.no_grad():
-            for _ in range(2):
-                logits = self.model(generated_sequence)
+            for _ in range(max_length):
+                generated_sequence_crop = generated_sequence[:, -127:]
+                logits = self.model(generated_sequence_crop)
                 # Take the logits corresponding to the last token
                 last_logits = logits[:, -1, :]
                 # Apply a softmax to get probabilities
                 probabilities = softmax(last_logits, dim=-1)
                 # Get the most likely token
-                res1 = torch.argmax(probabilities, dim=-1)
                 next_token = torch.argmax(probabilities, dim=-1).unsqueeze(1)
 
                 # Check whether the generated sequence is less than context_size
@@ -53,17 +51,17 @@ class InferenceEngine:
 
 
 def main():
-    doc_file_path = os.path.expanduser("~/Downloads/test_data.txt")
+    doc_file_path = os.path.expanduser("~/Downloads/tiny-shakespeare.txt")
     tokenizer = NaiveTokenizer(config={}, doc_file_path=doc_file_path)
     inference_engine = InferenceEngine(
         tokenizer=tokenizer,
         jit_model_path=os.path.join(os.path.dirname(__file__), "../../model.pt"),
     )
 
-    text = "The quick brown fox"
-    decoded_text = inference_engine.inference(text[:16])
+    text = "This is hello world. This is our"
+    decoded_text = inference_engine.inference(text[:128])
 
-    print("Predicted Text:", decoded_text)
+    print(f"Predicted Text: [{decoded_text}]")
 
 
 if __name__ == "__main__":
