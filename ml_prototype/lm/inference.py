@@ -14,7 +14,7 @@ class InferenceEngine:
         self.model.eval()
         self.tokenizer = tokenizer
 
-    def inference(self, text: str, max_length: int = 128, temperature: float = 1.0):
+    def inference(self, text: str, max_length: int = 256, temperature: float = 1.0):
         print(f"Inference: {text}")
         input_tensor = self.tokenizer.encode([text]).to(device)  # Move tensor to CPU
         generated_sequence = input_tensor
@@ -54,7 +54,7 @@ def main():
     )
 
     text = "To be or not to be. This is a question. What is the matter of the universe?"
-    for next_token_text in inference_engine.inference(text[:256]):
+    for next_token_text in inference_engine.inference(text):
         print(next_token_text, end="")
 
 
