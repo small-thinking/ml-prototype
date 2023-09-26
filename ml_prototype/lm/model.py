@@ -75,6 +75,7 @@ class Seq2SeqLM(pl.LightningModule):
     def training_step(self, batch, batch_idx) -> Dict[str, float]:
         x, y = batch
         config = self.model.config
+        seq_len = config["seq_len"]
 
         # Ensure the shape of y is as expected
         assert y.shape[1:] == (
@@ -82,7 +83,8 @@ class Seq2SeqLM(pl.LightningModule):
         ), f"Training_step: y.shape: {y.shape}, expect: {-1, config['seq_len']}"
 
         # Forward pass
-        y_hat = self.model(x)
+        attn_mask = torch.tril(torch.ones((seq_len, seq_len), device=x.device))
+        y_hat = self.model(x, attn_mask)
 
         # Ensure the shape of y_hat is as expected
         assert y_hat.shape == torch.Size(
@@ -103,8 +105,10 @@ class Seq2SeqLM(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         config = self.model.config
+        seq_len = config["seq_len"]
 
-        y_hat = self.model(x)
+        attn_mask = torch.tril(torch.ones((seq_len, seq_len), device=x.device))
+        y_hat = self.model(x, attn_mask)
         loss = self.loss(y_hat.view(-1, self.vocab_size), y.view(-1))
         metric_dict = {"val_loss": loss}
         self.log_dict(metric_dict, prog_bar=True, on_epoch=True, on_step=False)

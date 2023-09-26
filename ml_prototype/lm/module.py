@@ -268,6 +268,7 @@ class TransformerBlock(nn.Module):
         self.embed_dim = config.get("embed_dim", 256)
         self.num_heads = config.get("num_heads", 4)
         self.dropout_ratio = config.get("dropout_ratio", 0.0)
+        self.seq_len = config["seq_len"]
 
         self.attention = nn.MultiheadAttention(
             embed_dim=self.embed_dim,
@@ -280,7 +281,9 @@ class TransformerBlock(nn.Module):
         self.norm1 = nn.LayerNorm(self.embed_dim)
         self.norm2 = nn.LayerNorm(self.embed_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """Forward pass for the Transformer block.
 
         Args:
@@ -291,7 +294,9 @@ class TransformerBlock(nn.Module):
         ), f"x.shape: {x.shape}, embed_dim: {self.embed_dim}"
         # Attention with residual.
         x = self.norm1(x)
-        attn_output, _ = self.attention(x, x, x)
+
+        attn_output, _ = self.attention(query=x, key=x, value=x, attn_mask=attn_mask)
+        # attn_output, _ = self.attention(query=x, key=x, value=x)
         x = x + attn_output
         # Feed forward with residual.
         x = x + self.feed_forward(self.norm2(x))
@@ -310,13 +315,15 @@ class StackedTransformer(nn.Module):
             layers.append(TransformerBlock(config))
         self.stack = nn.Sequential(*layers)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """Forward pass for the Stacked Transformer.
         Args:
             x (torch.Tensor): The input tensor. Shape: [batch_size, seq_len, embed_dim].
         """
         for layer in self.stack:
-            x = layer(x)
+            x = layer(x, attn_mask=attn_mask)
         return x
 
 
@@ -375,7 +382,9 @@ class TransformerLM(LanguageModule):
         self.layer_norm = nn.LayerNorm(self.embed_dim)
         self.projection_layer = nn.Linear(self.embed_dim, vocab_size)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         batch_size, seq_len = x.shape
         # Token embedding
         x = self.embedding(x)  # [batch_size, seq_len, embed_dim]
@@ -386,7 +395,7 @@ class TransformerLM(LanguageModule):
         ), f"x.shape = {x.shape}, expected shape ({batch_size}, {seq_len}, {self.embed_dim})"
 
         # Passing through stacked transformers with attention mask
-        x = self.stacked_transformer(x)
+        x = self.stacked_transformer(x, attn_mask=attn_mask)
         x = self.layer_norm(x)
         logits = self.projection_layer(x)
 
