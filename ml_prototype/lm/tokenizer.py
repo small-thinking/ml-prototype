@@ -1,4 +1,5 @@
 import abc
+import json
 import os
 from typing import Any, Dict, List
 
@@ -40,24 +41,24 @@ class Tokenizer(abc.ABC):
 
 
 class NaiveTokenizer(Tokenizer):
-    def __init__(self, config: Dict[str, Any], doc_file_path: str):
+    def __init__(self, config: Dict[str, Any], token_file: str):
         super().__init__(config)
-        lines = open(os.path.expanduser(doc_file_path)).read()
-        self.vocab = sorted(list(set(lines)))
-        self.itos = {i: word for i, word in enumerate(self.vocab)}
-        self.stoi = {word: i for i, word in enumerate(self.vocab)}
+        with open(token_file, "r") as f:
+            tokens_data = json.load(f)
+            self.itos = {int(key): val for key, val in tokens_data["itos"].items()}
+            self.stoi = {key: int(val) for key, val in tokens_data["stoi"].items()}
 
     def vocab_size(self):
         return len(self.vocab)
 
-    def encode(self, texts: List[str]) -> torch.Tensor:
+    def encode(self, texts: str) -> torch.Tensor:
         """Encode the input texts."""
         tokens = []
         for text in texts:
             tokens.append([self.stoi[c] for c in text])
         return torch.LongTensor(tokens)
 
-    def decode(self, tensor: torch.Tensor) -> List[str]:
+    def decode(self, tensor: torch.Tensor) -> str:
         """Decode the tensor back to text."""
         decoded_text = "".join([self.itos[token_id.item()] for token_id in tensor])
         return decoded_text
