@@ -1,7 +1,7 @@
 seed_everything: null
 trainer:
   precision: 16-mixed
-  max_epochs: 20
+  max_epochs: 30
   logger:
     class_path: lightning.pytorch.loggers.TensorBoardLogger
     init_args:
@@ -12,7 +12,7 @@ trainer:
     - class_path: lm.model.TorchScriptCallback
       init_args:
         config:
-          batch_size: &batch_size 64
+          batch_size: &batch_size 256
           seq_len: &seq_len 384
           vocab_size: &vocab_size 215
           save_every_epoch: 5
@@ -29,7 +29,7 @@ model:
           seq_len: *seq_len
           embed_dim: 512
           num_heads: 8
-          num_layers: 6
+          num_layers: 8
           batch_first: true
           norm_first: true
           dropout_ratio: 0.05
@@ -43,7 +43,7 @@ data:
   init_args:
     config:
       data_path: ./data/
-      samples_per_epoch: 10000
+      samples_per_epoch: 100000
       batch_size: *batch_size
       seq_len: *seq_len
       token_file_path: ./data/tokens.json
@@ -51,12 +51,12 @@ data:
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
-    lr: 0.0005
+    lr: 0.00001
     weight_decay: 0.01
 
 lr_scheduler:
       class_path: torch.optim.lr_scheduler.StepLR
       init_args:
-        step_size: 10
-        gamma: 0.9
+        step_size: 5
+        gamma: 0.8
         verbose: True
