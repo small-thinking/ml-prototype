@@ -49,7 +49,7 @@ def main():
     inference_engine = InferenceEngine(
         tokenizer=tokenizer,
         jit_model_path=os.path.join(
-            os.path.dirname(__file__), "../../model_epoch_20.pt"
+            os.path.dirname(__file__), "../../mask_no_pos_emb.pt"
         ),
     )
 
