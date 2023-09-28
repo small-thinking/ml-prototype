@@ -5,7 +5,7 @@ from tokenizer import NaiveTokenizer, Tokenizer
 from torch.nn.functional import softmax
 
 device = "cpu"
-device = "cuda:0"
+# device = "cuda:0"
 
 
 class InferenceEngine:
@@ -14,7 +14,7 @@ class InferenceEngine:
         self.model.eval()
         self.tokenizer = tokenizer
 
-    def inference(self, text: str, max_length: int = 256, temperature: float = 1.0):
+    def inference(self, text: str, max_length: int = 512, temperature: float = 1.0):
         print(f"Inference: {text}")
         input_tensor = self.tokenizer.encode([text]).to(device)  # Move tensor to CPU
         generated_sequence = input_tensor
@@ -49,7 +49,7 @@ def main():
     inference_engine = InferenceEngine(
         tokenizer=tokenizer,
         jit_model_path=os.path.join(
-            os.path.dirname(__file__), "../../mask_no_pos_emb.pt"
+            os.path.dirname(__file__), "../../model_epoch_15.pt"
         ),
     )
 

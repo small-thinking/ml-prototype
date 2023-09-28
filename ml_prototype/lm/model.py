@@ -4,6 +4,7 @@ import os
 from typing import Any, Dict
 
 import lightning.pytorch as pl
+import lightning.pytorch.loggers.wandb as wandb
 import torch
 import torch.nn as nn
 from lm.module import LanguageModule
@@ -20,6 +21,22 @@ class DummyCallback(pl.Callback):
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
         optimizer = trainer.optimizers[0]
+
+
+class CustomWandbLogger(wandb.WandbLogger):
+    def __init__(self, name: str, project: str, config: Dict[str, Any], **kwargs):
+        batch_size, seq_len, embed_dim = (
+            config["batch_size"],
+            config["seq_len"],
+            config["embed_dim"],
+        )
+        num_heads, num_layers, dropout_ratio = (
+            config["num_heads"],
+            config["num_layers"],
+            config["dropout_ratio"],
+        )
+        experiment_name = f"dummy-b{batch_size}-t{seq_len}-d{embed_dim}-h{num_heads}-l{num_layers}-dp{dropout_ratio}"
+        super().__init__(name=name, project=project, experiment=experiment_name)
 
 
 class TorchScriptCallback(pl.Callback):
@@ -83,7 +100,9 @@ class Seq2SeqLM(pl.LightningModule):
         ), f"Training_step: y.shape: {y.shape}, expect: {-1, config['seq_len']}"
 
         # Forward pass
-        attn_mask = torch.tril(torch.ones((seq_len, seq_len), device=x.device))
+        attn_mask = torch.triu(
+            torch.full((seq_len, seq_len), float("-inf"), device=x.device), diagonal=1
+        )
         y_hat = self.model(x, attn_mask)
 
         # Ensure the shape of y_hat is as expected
@@ -107,7 +126,9 @@ class Seq2SeqLM(pl.LightningModule):
         config = self.model.config
         seq_len = config["seq_len"]
 
-        attn_mask = torch.tril(torch.ones((seq_len, seq_len), device=x.device))
+        attn_mask = torch.triu(
+            torch.full((seq_len, seq_len), float("-inf"), device=x.device), diagonal=1
+        )
         y_hat = self.model(x, attn_mask)
         loss = self.loss(y_hat.view(-1, self.vocab_size), y.view(-1))
         metric_dict = {"val_loss": loss}
