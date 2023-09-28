@@ -2,7 +2,7 @@
 """
 import abc
 import math
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -19,43 +19,57 @@ class RMSNorm(nn.Module):
     def __init__(
         self,
         config: Dict[str, Any],
-        layer_size: int,
-        eps: int = 1e-8,
+        layer_shape: Tuple[int, int],
+        eps: float = 1e-8,
         has_bias: bool = False,
     ):
         """Root mean square layer normalization.
         See Biao Zhang, Rico Sennrich, Root Mean Square Layer Normalization, NeurIPS 2019.
 
         Args:
-            config (Dict[str, Any]): The shared configuration for model.
-            layer_size (int): The size of the layer,.
-            eps (int, optional): The epsilon value. Defaults to 1e-8.
+            config (Dict[str, Any]): The shared configuration for the model.
+            layer_shape (Tuple[int, int]): The shape of the layer [seq_len, embed_dim].
+            eps (float, optional): The epsilon value. Defaults to 1e-8.
             has_bias (bool, optional): Whether to use bias. Defaults to False.
         """
         super().__init__()
         self.config = config
-        self.layer_size = layer_size
+        self.layer_shape = layer_shape  # Shape: [seq_len, embed_dim]
         self.eps = eps
-        # self.has_bias = has_bias
-        # self.scale = nn.Parameter(torch.ones(layer_size))
-        # self.register_parameter("scale", self.scale)
-        # if self.has_bias:
-        #     self.bias = nn.Parameter(torch.zeros(layer_size))
-        #     self.register_parameter("bias", self.bias)
+        self.has_bias = has_bias
+        self.scale = nn.Parameter(torch.ones(layer_shape[1]))  # Shape: [embed_dim]
+
+        if self.has_bias:
+            self.bias = nn.Parameter(torch.zeros(layer_shape[1]))  # Shape: [embed_dim]
+        else:
+            self.bias = torch.zeros(
+                layer_shape[1], requires_grad=False
+            )  # Shape: [embed_dim]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x (torch.Tensor): The input tensor.
+            x (torch.Tensor): The input tensor with shape [batch, seq_len, embed_dim]
         """
-        # Only calculate the 2-norm on the last dimensions.
-        norm_x = x.norm(p=2, dim=-1, keepdim=True)
-        rms_x = self.layer_size**-0.5 * norm_x
+
+        # Calculate RMS value along the last dimension (embed_dim)
+        # Shape of rms_x: [batch, seq_len, 1]
+        rms_x = torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)
+
+        # Normalize x by RMS value
+        # Shape of x_normed: [batch, seq_len, embed_dim]
         x_normed = x / (rms_x + self.eps)
+
+        # Scale the normalized output
+        # Shape of self.scale.unsqueeze(0).unsqueeze(0): [1, 1, embed_dim]
+        # Broadcasting takes care of the rest
+        # Final shape: [batch, seq_len, embed_dim]
         if self.has_bias:
-            return self.scale * x_normed + self.bias
+            return self.scale.unsqueeze(0).unsqueeze(
+                0
+            ) * x_normed + self.bias.unsqueeze(0).unsqueeze(0)
         else:
-            return self.scale * x_normed
+            return self.scale.unsqueeze(0).unsqueeze(0) * x_normed
 
 
 # class ScaledDotProductAttention(nn.Module):
@@ -265,8 +279,8 @@ class FeedForward(nn.Module):
 class TransformerBlock(nn.Module):
     def __init__(self, config: Dict[str, Any]):
         super().__init__()
-        self.embed_dim = config.get("embed_dim", 256)
-        self.num_heads = config.get("num_heads", 4)
+        self.embed_dim = config["embed_dim"]
+        self.num_heads = config["num_heads"]
         self.dropout_ratio = config.get("dropout_ratio", 0.0)
         self.seq_len = config["seq_len"]
 
@@ -278,8 +292,10 @@ class TransformerBlock(nn.Module):
         )
         self.feed_forward = FeedForward(config)
 
-        self.norm1 = nn.LayerNorm(self.embed_dim)
-        self.norm2 = nn.LayerNorm(self.embed_dim)
+        # self.norm1 = nn.LayerNorm(self.embed_dim)
+        self.norm1 = RMSNorm(config, (self.seq_len, self.embed_dim))
+        self.norm2 = RMSNorm(config, (self.seq_len, self.embed_dim))
+        # self.norm2 = nn.LayerNorm(self.embed_dim)
 
     def forward(
         self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
@@ -294,9 +310,9 @@ class TransformerBlock(nn.Module):
         ), f"x.shape: {x.shape}, embed_dim: {self.embed_dim}"
         # Attention with residual.
         x = self.norm1(x)
-
-        attn_output, _ = self.attention(query=x, key=x, value=x, attn_mask=attn_mask)
-        # attn_output, _ = self.attention(query=x, key=x, value=x)
+        attn_output, _ = self.attention(
+            query=x, key=x, value=x, attn_mask=attn_mask, is_causal=True
+        )
         x = x + attn_output
         # Feed forward with residual.
         x = x + self.feed_forward(self.norm2(x))
@@ -327,21 +343,47 @@ class StackedTransformer(nn.Module):
         return x
 
 
-class SinCosPositionalEmbedding(nn.Module):
-    def __init__(self, seq_len: int, embed_dim: int):
+class SimplePositionEmbedding(nn.Module):
+    def __init__(self, config: Dict[str, Any]):
         super().__init__()
-        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim)
+        self.config = config
+        self.seq_len, self.embed_dim = config["seq_len"], config["embed_dim"]
+        dropout_ratio = config["dropout_ratio"]
+        self.pos_embedding_table = nn.Embedding(self.seq_len, self.embed_dim)
+        self.dropout = nn.Dropout(dropout_ratio)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        actual_seq_len = min(x.shape[1], self.seq_len)
+        pos_embedding = self.pos_embedding_table(
+            torch.arange(actual_seq_len, device=x.device)
         )
-        pos_emb = torch.zeros(seq_len, embed_dim)
+        x = x + pos_embedding
+        return self.dropout(x)
+
+
+class SinCosPositionalEmbedding(nn.Module):
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        self.seq_len, self.embed_dim, self.dropout_ratio = (
+            config["seq_len"],
+            config["embed_dim"],
+            config["dropout_ratio"],
+        )
+        position = torch.arange(0, self.seq_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, self.embed_dim, 2).float()
+            * (-math.log(10000.0) / self.embed_dim)
+        )
+        pos_emb = torch.zeros(self.seq_len, self.embed_dim)
         pos_emb[:, 0::2] = torch.sin(position * div_term)
         pos_emb[:, 1::2] = torch.cos(position * div_term)
         self.register_buffer("pos_emb", pos_emb)
+        self.dropout = nn.Dropout(self.dropout_ratio)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        seq_len = x.size(1)  # pos embedding is only relevant to seq_len
-        return self.pos_emb[:seq_len, :]
+        x = x * math.sqrt(self.embed_dim) + self.pos_emb[: self.seq_len, :]
+        x = self.dropout(x)
+        return x
 
 
 class TransformerLM(LanguageModule):
@@ -377,6 +419,8 @@ class TransformerLM(LanguageModule):
 
         # Embedding for tokens
         self.embedding = nn.Embedding(vocab_size, self.embed_dim)
+        # self.pos_embedding = SinCosPositionalEmbedding(config)
+        self.pos_embedding = SimplePositionEmbedding(config)
 
         self.stacked_transformer = StackedTransformer(config)
         self.layer_norm = nn.LayerNorm(self.embed_dim)
@@ -386,6 +430,18 @@ class TransformerLM(LanguageModule):
         self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         batch_size, seq_len = x.shape
+        # # Assertions to check the attention mask
+        if attn_mask is not None:
+            assert (
+                attn_mask.shape[-1] == attn_mask.shape[-2] == seq_len
+            ), f"Attention mask last two dimensions should be of size {seq_len}"
+
+            # Check for causal mask
+            if torch.any(attn_mask == 1):
+                assert torch.all(
+                    attn_mask.tril() == attn_mask
+                ), "Attention mask is not an upper triangular matrix, thus not causal."
+
         # Token embedding
         x = self.embedding(x)  # [batch_size, seq_len, embed_dim]
         assert x.shape == (
@@ -393,6 +449,9 @@ class TransformerLM(LanguageModule):
             seq_len,
             self.embed_dim,
         ), f"x.shape = {x.shape}, expected shape ({batch_size}, {seq_len}, {self.embed_dim})"
+
+        # Apply pos embedding
+        x = self.pos_embedding(x)
 
         # Passing through stacked transformers with attention mask
         x = self.stacked_transformer(x, attn_mask=attn_mask)
