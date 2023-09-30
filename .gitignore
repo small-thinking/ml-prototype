@@ -171,3 +171,7 @@ poetry.lock
 
 # Torch
 **/*.pt
+
+# Weights & Biases
+dummy_model/*
+wandb/*
