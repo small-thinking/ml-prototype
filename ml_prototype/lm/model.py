@@ -130,7 +130,11 @@ class Seq2SeqLM(pl.LightningModule):
             torch.full((seq_len, seq_len), float("-inf"), device=x.device), diagonal=1
         )
         y_hat = self.model(x, attn_mask)
-        loss = self.loss(y_hat.view(-1, self.vocab_size), y.view(-1))
+
+        # Reshape for the loss function
+        y = y.view(-1)  # [batch_size * seq_len
+        y_hat = y_hat.view(-1, self.vocab_size)  # [batch_size * seq_len, vocab_size]
+        loss = self.loss(y_hat, y.view(-1))
         metric_dict = {"val_loss": loss}
         self.log_dict(metric_dict, prog_bar=True, on_epoch=True, on_step=False)
         return metric_dict

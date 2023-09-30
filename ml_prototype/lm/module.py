@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
-from torch.nn.functional import pad
+import torch.nn.functional as F
 
 
 class LanguageModule(nn.Module, abc.ABC):
@@ -75,7 +75,6 @@ class RMSNorm(nn.Module):
 # class ScaledDotProductAttention(nn.Module):
 #     def __init__(self, temperature: int = 1.0, dropout_ratio: int = 0.0):
 #         super().__init__()
-#         self.temperature = temperature
 #         self.dropout = nn.Dropout(dropout_ratio)
 
 #     def forward(self, q, k, v) -> torch.Tensor:
@@ -92,97 +91,90 @@ class RMSNorm(nn.Module):
 #         """
 #         dk = q.shape[-1]
 #         attn = (q @ k) / math.sqrt(dk)
-#         attn = F.softmax(attn / self.temperature, dim=-1)
+#         attn = F.softmax(attn, dim=-1)
 #         output = torch.matmul(self.dropout(attn), v)
 #         return output
 
 
-# class Attention(nn.Module):
-#     def __init__(
-#         self,
-#         embed_size: int,
-#         hidden_size: int,
-#         num_heads: int,
-#         temperature: int = 1.0,
-#         dropout_ratio: int = 0.0,
-#     ):
-#         """Constructor of the Attention class."""
-#         super(Attention, self).__init__()
+class Attention(nn.Module):
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        dropout_ratio: int = 0.0,
+    ):
+        """Constructor of the Attention class."""
+        super().__init__()
 
-#         self.embed_size = embed_size
-#         self.hidden_size = hidden_size
-#         self.num_heads = num_heads
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.dropout_ratio = dropout_ratio
 
-#         # Split embedding size into heads, validated by `embed_size % num_heads == 0`.
-#         assert (
-#             embed_size % num_heads == 0
-#         ), f"embed_size ({embed_size}) must be divisible by num_heads ({num_heads})."
-#         self.head_size = embed_size // num_heads
+        # Split embedding size into heads, validated by `embed_size % num_heads == 0`.
+        assert (embed_dim % num_heads == 0), f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})."
 
-#         # Initialize linear layers for projection and query.
-#         self.q = nn.Linear(self.hidden_size, self.embed_size)
-#         self.k = nn.Linear(self.hidden_size, self.embed_size)
-#         self.v = nn.Linear(self.hidden_size, self.embed_size)
+        self.head_dim = embed_dim // num_heads
 
-#         # Scaled dot product layer.
-#         self.scaled_dot_product_attention = ScaledDotProductAttention(
-#             temperature=temperature, dropout_ratio=dropout_ratio
-#         )
+        # Initialize linear layers for query, key, and value projections.
+        self.query = nn.Linear(embed_dim, embed_dim)
+        self.key = nn.Linear(embed_dim, embed_dim)
+        self.value = nn.Linear(embed_dim, embed_dim)
 
-#         # Output projection layer.
-#         self.output = nn.Linear(self.embed_size, self.hidden_size)
+        # Scaled dot product layer.
+        self.scaled_dot_product_attention = F.scaled_dot_product_attention  # torch.nn.scaled_dot_product_attention
 
-#         # Allow registering additional attention layers.
-#         self.attention_layers = nn.ModuleDict()
+        # Output projection layer.
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
 
-#     def forward(
-#         self,
-#         q: torch.Tensor,
-#         k: torch.Tensor,
-#         v: torch.Tensor,
-#         mask: torch.Tensor = None,
-#     ):
-#         """
-#         Forward pass for the Attention module.
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
+        is_causal: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """
+        Forward pass for the Attention module.
 
-#         Parameters:
-#         q (torch.Tensor): The query for attention, with shape (batch_size, hidden_size).
-#         k (torch.Tensor): The keys for attention, with shape (batch_size, seq_len, hidden_size).
-#         v (torch.Tensor): The values for attention, with shape (batch_size, seq_len, hidden_size).
-#         mask (torch.Tensor, optional): The attention mask, with shape (batch_size, seq_len). 1 indicates valid token, 0 indicates padding.
+        Parameters:
+            query (torch.Tensor): The query for attention, shape (batch_size, seq_len, embed_dim).
+            key (torch.Tensor): The keys for attention, shape (batch_size, seq_len, embed_dim).
+            value (torch.Tensor): The values for attention, shape (batch_size, seq_len, embed_dim).
+            attn_mask (torch.Tensor, optional): The attention mask, shape (batch_size, seq_len).
 
-#         Returns:
-#         torch.Tensor: The context vector after attention, with shape (batch_size, hidden_size).
+        Returns:
+            torch.Tensor: The output after attention, shape (batch_size, seq_len, embed_dim).
+            Optional[Tensor]: Placeholder.
 
-#         Functionality:
-#         1. Linearly project the keys, values and query using the module's linear layers.
-#         2. Split the projected keys, values and query into multiple heads.
-#         3. Apply scaled dot-product attention for each head.
-#         4. Concatenate the attention outputs of each head.
-#         5. Project the concatenated output through the output linear layer.
-#         """
-#         N = q.shape[0]
+        Functionality:
+            1. Linearly project the keys, values, and query.
+            2. Split the projected keys, values, and query into multiple heads.
+            3. Apply scaled dot-product attention.
+            4. Concatenate the attention outputs.
+            5. Project the concatenated output.
+        """
+        batch_size = query.size(0)
+        q_len, k_len, v_len = query.size(1), key.size(1), value.size(1)
 
-#         q_len, k_len, v_len = q.shape[1], k.shape[1], v.shape[1]
+        # Step 1: Apply projection layer.
+        Q = self.query(query)
+        K = self.key(key)
+        V = self.value(value)
 
-#         # Apply projection layer.
-#         q = self.query(q)
-#         k = self.key(k)
-#         v = self.value(v)
+        # Step 2: Reshape for multi-head attention.
+        Q = Q.reshape(batch_size, q_len, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+        K = K.reshape(batch_size, k_len, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+        V = V.reshape(batch_size, v_len, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
 
-#         # Reshape for multi-head attention.
-#         q = q.reshape(N, q_len, self.num_heads, self.head_size)
-#         k = k.reshape(N, k_len, self.num_heads, self.head_size)
-#         v = v.reshape(N, v_len, self.num_heads, self.head_size)
+        # Step 3: Compute scaled dot-product attention.
+        attn_output = self.scaled_dot_product_attention(Q, K, V, attn_mask, self.dropout_ratio, is_causal)
 
-#         # Compute scaled dot-product attention.
-#         attn = self.scaled_dot_product_attention(q, k, v)
+        # Step 4 and 5: Reshape and project output.
+        attn_output = attn_output.permute(0, 2, 1, 3).contiguous().view(batch_size, q_len, self.embed_dim)
+        output = self.out_proj(attn_output)
 
-#         # Reshape for multi-head attention.
-#         attn = attn.reshape(N, q_len, self.num_heads * self.head_size)
-#         # Apply output projection layer.
-#         output = self.output(attn)
-#         return output
+        return output, None
 
 
 class FeedForwardModel(nn.Module):
@@ -283,19 +275,30 @@ class TransformerBlock(nn.Module):
         self.num_heads = config["num_heads"]
         self.dropout_ratio = config.get("dropout_ratio", 0.0)
         self.seq_len = config["seq_len"]
+        self.norm_type = config.get("norm_type", "simple")
 
-        self.attention = nn.MultiheadAttention(
-            embed_dim=self.embed_dim,
-            num_heads=self.num_heads,
-            dropout=self.dropout_ratio,
-            batch_first=True,
-        )
+        if config.get("use_custom_attention", False):
+            self.attention = nn.MultiheadAttention(
+                embed_dim=self.embed_dim,
+                num_heads=self.num_heads,
+                dropout=self.dropout_ratio,
+                batch_first=True,
+            )
+        else:
+            self.attention = Attention(
+                embed_dim=self.embed_dim,
+                num_heads=self.num_heads,
+                dropout_ratio=self.dropout_ratio,
+            )
         self.feed_forward = FeedForward(config)
 
-        # self.norm1 = nn.LayerNorm(self.embed_dim)
-        self.norm1 = RMSNorm(config, (self.seq_len, self.embed_dim))
-        self.norm2 = RMSNorm(config, (self.seq_len, self.embed_dim))
-        # self.norm2 = nn.LayerNorm(self.embed_dim)
+        if self.norm_type == "rms":
+            self.norm1 = RMSNorm(config, (self.seq_len, self.embed_dim))
+            self.norm2 = RMSNorm(config, (self.seq_len, self.embed_dim))
+        else:
+            self.norm1 = nn.LayerNorm(self.embed_dim)
+            self.norm2 = nn.LayerNorm(self.embed_dim)
+        
 
     def forward(
         self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
@@ -309,9 +312,9 @@ class TransformerBlock(nn.Module):
             x.shape[-1] == self.embed_dim
         ), f"x.shape: {x.shape}, embed_dim: {self.embed_dim}"
         # Attention with residual.
-        x = self.norm1(x)
+        norm_x = self.norm1(x)
         attn_output, _ = self.attention(
-            query=x, key=x, value=x, attn_mask=attn_mask, is_causal=True
+            query=norm_x, key=norm_x, value=norm_x, attn_mask=None, is_causal=True
         )
         x = x + attn_output
         # Feed forward with residual.
@@ -348,9 +351,7 @@ class SimplePositionEmbedding(nn.Module):
         super().__init__()
         self.config = config
         self.seq_len, self.embed_dim = config["seq_len"], config["embed_dim"]
-        dropout_ratio = config["dropout_ratio"]
         self.pos_embedding_table = nn.Embedding(self.seq_len, self.embed_dim)
-        self.dropout = nn.Dropout(dropout_ratio)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         actual_seq_len = min(x.shape[1], self.seq_len)
@@ -358,18 +359,14 @@ class SimplePositionEmbedding(nn.Module):
             torch.arange(actual_seq_len, device=x.device)
         )
         x = x + pos_embedding
-        return self.dropout(x)
+        return x
 
 
 class SinCosPositionalEmbedding(nn.Module):
     def __init__(self, config: Dict[str, Any]):
         super().__init__()
-        self.seq_len, self.embed_dim, self.dropout_ratio = (
-            config["seq_len"],
-            config["embed_dim"],
-            config["dropout_ratio"],
-        )
-        position = torch.arange(0, self.seq_len, dtype=torch.float).unsqueeze(1)
+        self.seq_len, self.embed_dim = config["seq_len"], config["embed_dim"],
+        position = torch.arange(0, self.seq_len, dtype=torch.float).unsqueeze(1)  # [seq_len, 1]
         div_term = torch.exp(
             torch.arange(0, self.embed_dim, 2).float()
             * (-math.log(10000.0) / self.embed_dim)
@@ -378,11 +375,10 @@ class SinCosPositionalEmbedding(nn.Module):
         pos_emb[:, 0::2] = torch.sin(position * div_term)
         pos_emb[:, 1::2] = torch.cos(position * div_term)
         self.register_buffer("pos_emb", pos_emb)
-        self.dropout = nn.Dropout(self.dropout_ratio)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x * math.sqrt(self.embed_dim) + self.pos_emb[: self.seq_len, :]
-        x = self.dropout(x)
+        actual_seq_len = min(x.shape[1], self.seq_len)
+        x = x * math.sqrt(self.embed_dim) + self.pos_emb[: actual_seq_len, :]
         return x
 
 
@@ -416,11 +412,16 @@ class TransformerLM(LanguageModule):
         assert "vocab_size" in config, "vocab_size must be specified in config"
         vocab_size = config["vocab_size"]
         self.use_position_embedding = config.get("use_position_embedding", True)
+        self.pos_embedding_type = config.get("pos_embedding_type", "simple")
 
         # Embedding for tokens
         self.embedding = nn.Embedding(vocab_size, self.embed_dim)
-        # self.pos_embedding = SinCosPositionalEmbedding(config)
-        self.pos_embedding = SimplePositionEmbedding(config)
+        if not config.get("use_position_embedding", True):
+            self.pos_embedding = torch.Tensor.zeros(config["seq_len"], self.embed_dim)
+        elif self.pos_embedding_type == "simple":
+            self.pos_embedding = SimplePositionEmbedding(config)
+        else:
+            self.pos_embedding = SinCosPositionalEmbedding(config)
 
         self.stacked_transformer = StackedTransformer(config)
         self.layer_norm = nn.LayerNorm(self.embed_dim)

@@ -1,22 +1,20 @@
-import os
-
+import argparse
 import torch
-from tokenizer import NaiveTokenizer, Tokenizer
+import os
 from torch.nn.functional import softmax
-
-device = "cpu"
-# device = "cuda:0"
+from tokenizer import NaiveTokenizer, Tokenizer
 
 
 class InferenceEngine:
-    def __init__(self, tokenizer, jit_model_path: str):
-        self.model = torch.jit.load(jit_model_path).to(device)  # Move model to CPU
+    def __init__(self, tokenizer, jit_model_path: str, device: str):
+        self.device = device
+        self.model = torch.jit.load(jit_model_path).to(self.device)
         self.model.eval()
         self.tokenizer = tokenizer
 
-    def inference(self, text: str, max_length: int = 512, temperature: float = 1.0):
+    def inference(self, text: str, max_length: int = 256, temperature: float = 1.0):
         print(f"Inference: {text}")
-        input_tensor = self.tokenizer.encode([text]).to(device)  # Move tensor to CPU
+        input_tensor = self.tokenizer.encode([text]).to(self.device)
         generated_sequence = input_tensor
 
         with torch.no_grad():
@@ -31,7 +29,7 @@ class InferenceEngine:
                 adj_prob = softmax(adj_logits, dim=-1)
 
                 next_token = torch.multinomial(adj_prob, num_samples=1).to(
-                    device
+                    self.device
                 )  # Move tensor to CPU
                 generated_sequence = torch.cat([generated_sequence, next_token], dim=1)
 
@@ -42,21 +40,36 @@ class InferenceEngine:
                 if generated_sequence.size(1) >= max_length:
                     break
 
-
 def main():
+    # Initialize argparse object
+    parser = argparse.ArgumentParser(description='Inference Script')
+
+    # Add arguments
+    parser.add_argument(
+        '--prompt', "-p",
+        type=str, default="To be or not to be. This is a question. What is the matter of the universe?",
+        help='Prompt.'
+    )
+    parser.add_argument('--max_length', "-m", type=int, default=256, help='Maximum length of generated sequence.')
+    parser.add_argument('--temperature', "-t", type=float, default=1.0, help='Temperature for sampling.')
+    parser.add_argument('--device', "-d", type=str, default="cuda:0", help='The device to use.')
+
+    # Parse the arguments
+    args = parser.parse_args()
+
     token_file = os.path.expanduser("./data/tokens.json")
     tokenizer = NaiveTokenizer(config={}, token_file=token_file)
     inference_engine = InferenceEngine(
         tokenizer=tokenizer,
         jit_model_path=os.path.join(
-            os.path.dirname(__file__), "../../model_epoch_15.pt"
+            os.path.dirname(__file__), "../../model_epoch_30.pt"
         ),
+        device=args.device,
     )
 
-    text = "To be or not to be. This is a question. What is the matter of the universe?"
-    for next_token_text in inference_engine.inference(text):
+    # Use parsed arguments
+    for next_token_text in inference_engine.inference(args.prompt, args.max_length, args.temperature):
         print(next_token_text, end="")
-
 
 if __name__ == "__main__":
     main()
