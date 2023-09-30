@@ -178,3 +178,7 @@ wandb/*
 
 # Data
 data/*
+tokenizer/*
+
+# git
+**/*.patch
