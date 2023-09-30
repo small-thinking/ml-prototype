@@ -54,9 +54,10 @@ class InMemoryDataModule(pl.LightningDataModule):
             list_files = glob.glob(os.path.join(self.data_path, "*.txt"))
             for file_path in list_files:
                 print(f"Load data from {file_path}...")
-                self.text += open(
-                    os.path.expanduser(file_path), "r", encoding="utf-8"
-                ).read()
+                with open(os.path.expanduser(file_path), "r", encoding="utf-8") as f:
+                    # Strip for non empty line rows.
+                    rows = [row.strip() if len(row) >= 2 else row for row in f.readlines()]
+                    self.text += " ".join(rows)
         # Reuse or generate the vocab.
         if os.path.exists(self.token_file):
             print("Loading tokens from existing file...")

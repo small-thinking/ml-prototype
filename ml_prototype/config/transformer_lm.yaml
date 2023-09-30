@@ -1,43 +1,29 @@
 seed_everything: null
 trainer:
   precision: 16-mixed
-  max_epochs: 90
+  max_epochs: 30
   logger:
-    # - class_path: lightning.pytorch.loggers.TensorBoardLogger
-    #   init_args:
-    #     save_dir: ./lightning_logs
-    #     name: 1-transformer-256-c128-b128-rmsn-pos
     - class_path: lightning.pytorch.loggers.WandbLogger
       init_args:
         project: dummy_model
-        name: rms-lpe-b256-t384-d512-h8-l8-lr2e-04-dr0.05
-
-    # - class_path: lm.model.CustomWandbLogger
-    #   init_args:
-    #     name: wandb
-    #     project: dummy_model
-    #     config:
-    #       batch_size: &batch_size 256
-    #       seq_len: &seq_len 384
-    #       embed_dim: &embed_dim 512
-    #       num_heads: &num_heads 4
-    #       num_layers: &num_layers 2
-    #       dropout_ratio: &dropout_ratio 0.05
+        name: attn-ln-lp-b512-t384-d512-h4-l4-lr5e-04-dr0.1
 
   callbacks:
     - class_path: lm.model.DummyCallback
     - class_path: lm.model.TorchScriptCallback
       init_args:
         config:
-          batch_size: &batch_size 256
+          batch_size: &batch_size 1024
           seq_len: &seq_len 384
           embed_dim: &embed_dim 512
-          num_heads: &num_heads 8
-          num_layers: &num_layers 8
-          dropout_ratio: &dropout_ratio 0.05
+          num_heads: &num_heads 4
+          num_layers: &num_layers 4
+          dropout_ratio: &dropout_ratio 0.1
 
-          # batch_size: *batch_size
-          # seq_len: *seq_len
+          use_position_embedding: &use_position_embedding true
+          pos_embedding_type: simple
+          use_custom_attention: false
+
           vocab_size: &vocab_size 215
           save_every_epoch: 5
 
@@ -57,7 +43,7 @@ model:
           batch_first: true
           norm_first: true
           dropout_ratio: *dropout_ratio
-          use_position_embedding: false
+          use_position_embedding: *use_position_embedding
     loss:
       class_path: torch.nn.CrossEntropyLoss
     vocab_size: *vocab_size
@@ -75,7 +61,7 @@ data:
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
-    lr: 0.0002
+    lr: 0.0005
     weight_decay: 0.01
 
 lr_scheduler:
