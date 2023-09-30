@@ -6,14 +6,14 @@ trainer:
     - class_path: lightning.pytorch.loggers.WandbLogger
       init_args:
         project: dummy_model
-        name: attn-ln-lp-b512-t384-d512-h4-l4-lr5e-04-dr0.1
+        name: bpe216-ln-lp-b512-t384-d512-h4-l4-lr5e-4-dr0.1
 
   callbacks:
     - class_path: lm.model.DummyCallback
     - class_path: lm.model.TorchScriptCallback
       init_args:
         config:
-          batch_size: &batch_size 1024
+          batch_size: &batch_size 512
           seq_len: &seq_len 384
           embed_dim: &embed_dim 512
           num_heads: &num_heads 4
@@ -24,7 +24,8 @@ trainer:
           pos_embedding_type: simple
           use_custom_attention: false
 
-          vocab_size: &vocab_size 215
+          vocab_size: &vocab_size 256  # for bpe tokenizer
+          # vocab_size: &vocab_size 216  # for char tokenizer
           save_every_epoch: 5
 
 
@@ -44,25 +45,37 @@ model:
           norm_first: true
           dropout_ratio: *dropout_ratio
           use_position_embedding: *use_position_embedding
+          vocab_size: *vocab_size
     loss:
       class_path: torch.nn.CrossEntropyLoss
     vocab_size: *vocab_size
     
+
 data:
   class_path: lm.data_module.InMemoryDataModule
   init_args:
     config:
       data_path: ./data/
-      samples_per_epoch: 50000
+      samples_per_epoch: 100000
       batch_size: *batch_size
       seq_len: *seq_len
-      token_file_path: ./data/tokens.json
+    tokenizer:
+      # class_path: lm.tokenizer.NaiveTokenizer
+      class_path: lm.tokenizer.BytePairTokenizer
+      init_args:
+        config:
+          token_folder_path: ./tokenizer/bpe-256
+          text_folder_path: ./data
+          vocab_size: *vocab_size
+          min_frequency: 10
+
 
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
     lr: 0.0005
     weight_decay: 0.01
+
 
 lr_scheduler:
       class_path: torch.optim.lr_scheduler.StepLR
