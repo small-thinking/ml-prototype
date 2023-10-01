@@ -111,7 +111,9 @@ class Attention(nn.Module):
         self.dropout_ratio = dropout_ratio
 
         # Split embedding size into heads, validated by `embed_size % num_heads == 0`.
-        assert (embed_dim % num_heads == 0), f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})."
+        assert (
+            embed_dim % num_heads == 0
+        ), f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})."
 
         self.head_dim = embed_dim // num_heads
 
@@ -121,7 +123,9 @@ class Attention(nn.Module):
         self.value = nn.Linear(embed_dim, embed_dim)
 
         # Scaled dot product layer.
-        self.scaled_dot_product_attention = F.scaled_dot_product_attention  # torch.nn.scaled_dot_product_attention
+        self.scaled_dot_product_attention = (
+            F.scaled_dot_product_attention
+        )  # torch.nn.scaled_dot_product_attention
 
         # Output projection layer.
         self.out_proj = nn.Linear(embed_dim, embed_dim)
@@ -163,15 +167,27 @@ class Attention(nn.Module):
         V = self.value(value)
 
         # Step 2: Reshape for multi-head attention.
-        Q = Q.reshape(batch_size, q_len, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
-        K = K.reshape(batch_size, k_len, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
-        V = V.reshape(batch_size, v_len, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+        Q = Q.reshape(batch_size, q_len, self.num_heads, self.head_dim).permute(
+            0, 2, 1, 3
+        )
+        K = K.reshape(batch_size, k_len, self.num_heads, self.head_dim).permute(
+            0, 2, 1, 3
+        )
+        V = V.reshape(batch_size, v_len, self.num_heads, self.head_dim).permute(
+            0, 2, 1, 3
+        )
 
         # Step 3: Compute scaled dot-product attention.
-        attn_output = self.scaled_dot_product_attention(Q, K, V, attn_mask, self.dropout_ratio, is_causal)
+        attn_output = self.scaled_dot_product_attention(
+            Q, K, V, attn_mask, self.dropout_ratio, is_causal
+        )
 
         # Step 4 and 5: Reshape and project output.
-        attn_output = attn_output.permute(0, 2, 1, 3).contiguous().view(batch_size, q_len, self.embed_dim)
+        attn_output = (
+            attn_output.permute(0, 2, 1, 3)
+            .contiguous()
+            .view(batch_size, q_len, self.embed_dim)
+        )
         output = self.out_proj(attn_output)
 
         return output, None
@@ -298,7 +314,6 @@ class TransformerBlock(nn.Module):
         else:
             self.norm1 = nn.LayerNorm(self.embed_dim)
             self.norm2 = nn.LayerNorm(self.embed_dim)
-        
 
     def forward(
         self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
@@ -365,8 +380,13 @@ class SimplePositionEmbedding(nn.Module):
 class SinCosPositionalEmbedding(nn.Module):
     def __init__(self, config: Dict[str, Any]):
         super().__init__()
-        self.seq_len, self.embed_dim = config["seq_len"], config["embed_dim"],
-        position = torch.arange(0, self.seq_len, dtype=torch.float).unsqueeze(1)  # [seq_len, 1]
+        self.seq_len, self.embed_dim = (
+            config["seq_len"],
+            config["embed_dim"],
+        )
+        position = torch.arange(0, self.seq_len, dtype=torch.float).unsqueeze(
+            1
+        )  # [seq_len, 1]
         div_term = torch.exp(
             torch.arange(0, self.embed_dim, 2).float()
             * (-math.log(10000.0) / self.embed_dim)
@@ -378,7 +398,7 @@ class SinCosPositionalEmbedding(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         actual_seq_len = min(x.shape[1], self.seq_len)
-        x = x * math.sqrt(self.embed_dim) + self.pos_emb[: actual_seq_len, :]
+        x = x * math.sqrt(self.embed_dim) + self.pos_emb[:actual_seq_len, :]
         return x
 
 
@@ -416,8 +436,10 @@ class TransformerLM(LanguageModule):
 
         # Embedding for tokens
         self.embedding = nn.Embedding(vocab_size, self.embed_dim)
-        if not config.get("use_position_embedding", True):
-            self.pos_embedding = torch.Tensor.zeros(config["seq_len"], self.embed_dim)
+        if self.pos_embedding_type == "none":
+            self.pos_embedding = torch.Tensor.zeros(
+                config["seq_len"], self.embed_dim, requires_grad=False
+            )
         elif self.pos_embedding_type == "simple":
             self.pos_embedding = SimplePositionEmbedding(config)
         else:
