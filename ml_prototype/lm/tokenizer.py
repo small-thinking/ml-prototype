@@ -1,12 +1,12 @@
 import abc
 import argparse
 import json
-from glob import glob
 import os
+from glob import glob
 from typing import Any, Dict, List, Sequence, Union
 
-from tokenizers import ByteLevelBPETokenizer 
 import torch
+from tokenizers import ByteLevelBPETokenizer
 
 
 class Tokenizer(abc.ABC):
@@ -20,8 +20,7 @@ class Tokenizer(abc.ABC):
         raise NotImplementedError
 
     def train(self):
-        """Train the tokenizer. Not all tokenizer are trainable.
-        """
+        """Train the tokenizer. Not all tokenizer are trainable."""
         pass
 
     @abc.abstractmethod
@@ -76,10 +75,14 @@ class NaiveTokenizer(Tokenizer):
 
     def _build_vocab_from_folder(self):
         if not self.text_folder_path or not os.path.exists(self.text_folder_path):
-            raise ValueError("Need to specify the text_folder_path to build the tokenizer.")
+            raise ValueError(
+                "Need to specify the text_folder_path to build the tokenizer."
+            )
         vocab = set()
         for filename in os.listdir(self.text_folder_path):
-            with open(os.path.join(self.text_folder_path, filename), "r", encoding="utf-8") as f:
+            with open(
+                os.path.join(self.text_folder_path, filename), "r", encoding="utf-8"
+            ) as f:
                 text = f.read()
                 vocab.update(list(text))
 
@@ -98,7 +101,9 @@ class NaiveTokenizer(Tokenizer):
         return torch.LongTensor(tokens)
 
     def decode(self, tensor: torch.Tensor) -> str:
-        decoded_text = "".join([self.itos.get(token_id.item(), "<UNK>") for token_id in tensor])
+        decoded_text = "".join(
+            [self.itos.get(token_id.item(), "<UNK>") for token_id in tensor]
+        )
         return decoded_text
 
 
@@ -119,14 +124,22 @@ class BytePairTokenizer(Tokenizer):
             self.tokenizer = ByteLevelBPETokenizer()
             self.min_frequency = self.config.get("min_frequency", 2)
         else:
-            raise ValueError("Either provide metadata for a pretrained tokenizer or provide a path for the training data folder.")
+            raise ValueError(
+                "Either provide metadata for a pretrained tokenizer or provide a path for the training data folder."
+            )
 
     def train(self):
         if not self.text_folder_path:
             raise ValueError("Training data folder must be specified for training.")
-        files = glob(os.path.join(self.text_folder_path, "*.txt"))
-        print(f"Start to train the BPETokenizer with the data in {self.text_folder_path}")
-        self.tokenizer.train(files=files, vocab_size=self.vocab_size_config, min_frequency=self.min_frequency)
+        files = glob(os.path.join(self.text_folder_path, "**", "*.txt"), recursive=True)
+        print(
+            f"Start to train the BPETokenizer with the data in {self.text_folder_path}"
+        )
+        self.tokenizer.train(
+            files=files,
+            vocab_size=self.vocab_size_config,
+            min_frequency=self.min_frequency,
+        )
         print(f"Finished training, write the data to {self.token_folder_path}")
         if not os.path.exists(self.token_folder_path):
             os.mkdir(self.token_folder_path)
@@ -142,11 +155,11 @@ class BytePairTokenizer(Tokenizer):
         # Convert tensor to Python list if it's a tensor
         if isinstance(tensor, torch.Tensor):
             tensor = tensor.cpu().tolist()
-        
+
         # If a single integer is passed, convert it to a list
         if isinstance(tensor, int):
             tensor = [tensor]
-        
+
         # At this point, tensor should be a list or Sequence
         decoded_text = self.tokenizer.decode(tensor, skip_special_tokens=True)
         return decoded_text
@@ -156,20 +169,42 @@ def parse_args() -> Dict[str, str]:
     parser = argparse.ArgumentParser(description="Train a BytePairTokenizer")
 
     # Argument to specify the folder containing the training data
-    parser.add_argument("--text_folder_path", "-d", type=str, default="./data", 
-                        help="Folder containing the text files to train the tokenizer.")
+    parser.add_argument(
+        "--text_folder_path",
+        "-d",
+        type=str,
+        default="./data",
+        help="Folder containing the text files to train the tokenizer.",
+    )
 
     # Argument to specify where to save the tokenizer files
-    parser.add_argument("--token_folder_path", "-t", type=str, default="./tokenizer/bpe", 
-                        help="Folder to save the trained tokenizer files.")
+    parser.add_argument(
+        "--token_folder_path",
+        "-t",
+        type=str,
+        default="./tokenizer/bpe",
+        help="Folder to save the trained tokenizer files.",
+    )
 
     # Argument to specify the vocab size for the tokenizer
-    parser.add_argument("--vocab_size", "-v", type=int, default=5000, 
-                        help="Vocabulary size for the tokenizer.")
+    parser.add_argument(
+        "--vocab_size",
+        "-v",
+        type=int,
+        default=5000,
+        help="Vocabulary size for the tokenizer.",
+    )
 
     # Argument to specify the minimum frequency for subwords
-    parser.add_argument("--min_frequency", "-m", type=int, default=2, 
-                        help="Minimum frequency for subwords in the training data.")
+    parser.add_argument(
+        "--min_frequency",
+        "-m",
+        type=int,
+        default=2,
+        help="Minimum frequency for subwords in the training data.",
+    )
+
+    parser.add_argument("--prompt", "-p", type=str)
 
     return vars(parser.parse_args())
 
@@ -188,6 +223,6 @@ def main(args: Dict[str, str]):
     tokenizer.train()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     args = parse_args()
     main(args)
