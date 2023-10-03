@@ -80,9 +80,29 @@ class TorchScriptCallback(pl.Callback):
 
 
 class Seq2SeqLM(pl.LightningModule):
-    def __init__(self, model: LanguageModule, loss: nn.Module, vocab_size: int):
+    def __init__(
+        self,
+        model: LanguageModule,
+        loss: nn.Module,
+        vocab_size: int,
+        checkpoint_dir: str = None,
+        checkpoint_epoch: str = None
+    ):
         super().__init__()
-        self.model = model
+
+        if checkpoint_dir is not None:
+            if checkpoint_epoch is not None:
+                # Load model from a specific checkpoint
+                checkpoint_path = os.path.join(checkpoint_dir, f'epoch={checkpoint_epoch}.ckpt')
+            else:
+                # Load the latest checkpoint
+                list_of_files = glob.glob(os.path.join(checkpoint_dir, "*.ckpt"))
+                checkpoint_path = max(list_of_files, key=os.path.getctime)
+            
+            self.model = Seq2SeqLM.load_from_checkpoint(checkpoint_path).model
+        else:
+            self.model = model
+        
         self.loss = loss
         self.vocab_size = vocab_size
 

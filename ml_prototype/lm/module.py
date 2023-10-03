@@ -15,6 +15,39 @@ class LanguageModule(nn.Module, abc.ABC):
         self.config = config
 
 
+class SwiGLU(nn.Module):
+    def __init__(self, embed_dim: int):
+        super(SwiGLU, self).__init__()
+        self.embed_dim = embed_dim
+
+        # Gated layer weights and bias
+        self.gate_weight = nn.Parameter(torch.Tensor(embed_dim))
+        self.gate_bias = nn.Parameter(torch.Tensor(embed_dim))
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.uniform_(self.gate_weight, -0.1, 0.1)
+        nn.init.zeros_(self.gate_bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Swish Part
+        swish = x * torch.sigmoid(x)
+
+        # Reshape the 1D gate_weight and gate_bias to 3D for linear transformation
+        gate_weight_3D = self.gate_weight[None, None, :]
+        gate_bias_3D = self.gate_bias[None, None, :]
+
+        # Gated Linear Unit Part
+        # Use broadcasting to apply the gate across the batch and sequence length
+        gate = torch.sigmoid((x * gate_weight_3D) + gate_bias_3D)
+
+        # SwiGLU
+        out = swish * gate
+
+        return out
+
+
 class RMSNorm(nn.Module):
     def __init__(
         self,
@@ -227,11 +260,11 @@ class FeedForwardModel(nn.Module):
             elif norm_type == "rms_norm":
                 layers.append(RMSNorm(self.config, in_size))
         layers.append(nn.Linear(in_size, out_size))
-        if (
-            not is_last_layer
-            and self.config.get("activation_type", "relu").lower() == "relu"
-        ):
-            layers.append(nn.ReLU())
+        if not is_last_layer:
+            if self.config.get("activation_type", "relu").lower() == "relu":
+                layers.append(nn.ReLU())
+            else:
+                layers.append(SwiGLU(out_size))
         if not self.config.get("pre_norm", False):
             norm_type = self.config.get("norm_type", "layer_norm")
             if norm_type == "layer_norm":
@@ -272,10 +305,11 @@ class FeedForward(nn.Module):
         self.config = config
         embed_dim = config["embed_dim"]
         dropout = config.get("dropout_ratio", 0.01)
+        activate_type = config.get("activation_type", "relu").lower()
         # Feed forward layer is 4x wider of the embedding dimension
         self.net = nn.Sequential(
             nn.Linear(embed_dim, 4 * embed_dim),
-            nn.ReLU(),
+            nn.ReLU() if activate_type == "relu" else SwiGLU(4 * embed_dim),
             nn.Linear(4 * embed_dim, embed_dim),
             nn.Dropout(dropout),
         )

@@ -179,6 +179,8 @@ wandb/*
 # Data
 data/*
 tokenizer/*
+checkpoints/**
+nohup.out
 
 # git
 **/*.patch

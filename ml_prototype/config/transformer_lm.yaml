@@ -1,7 +1,7 @@
 seed_everything: null
 trainer:
   precision: 16-mixed
-  max_epochs: 30
+  max_epochs: 60
   logger:
     # - class_path: lightning.pytorch.loggers.TensorBoardLogger
     #   init_args:
@@ -10,24 +10,37 @@ trainer:
     - class_path: lightning.pytorch.loggers.WandbLogger
       init_args:
         project: dummy_model
-        name: bpe300-ln-lp-d512-h4l4-lr1e-4
+        name: &name overfit-spm256-ln-lp-d512-h4l8-lr1e-3
 
   callbacks:
     - class_path: lm.model.DummyCallback
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: ./checkpoints/overfit-spm256-ln-lp-d512-h4l8-lr1e-3
+        every_n_epochs: 5
+        verbose: true
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: loss
+        patience: 6
     - class_path: lm.model.TorchScriptCallback
       init_args:
         config:
-          batch_size: &batch_size 1024
-          seq_len: &seq_len 384
+          batch_size: &batch_size 512
+          seq_len: &seq_len 512
           embed_dim: &embed_dim 512
           num_heads: &num_heads 4
-          num_layers: &num_layers 4
+          num_layers: &num_layers 8
           dropout_ratio: &dropout_ratio 0.1
+          activation_type: &activation_type relu
 
           pos_embedding_type: &pos_embedding_type simple
           use_custom_attention: false
 
-          vocab_size: &vocab_size 300  # for bpe tokenizer
+          vocab_size: &vocab_size 256  # for bpe tokenizer
           # vocab_size: &vocab_size 216  # for char tokenizer
           save_every_epoch: 5
 
@@ -49,6 +62,8 @@ model:
           dropout_ratio: *dropout_ratio
           pos_embedding_type: *pos_embedding_type
           vocab_size: *vocab_size
+          activation_type: *activation_type
+
     loss:
       class_path: torch.nn.CrossEntropyLoss
     vocab_size: *vocab_size
@@ -65,25 +80,34 @@ data:
       seq_len: *seq_len
     tokenizer:
       # class_path: lm.tokenizer.NaiveTokenizer
-      class_path: lm.tokenizer.BytePairTokenizer
+      # class_path: lm.tokenizer.BytePairTokenizer
+      # init_args:
+      #   config:
+      #     token_folder_path: ./tokenizer/bpe-1000
+      #     text_folder_path: ./data
+      #     vocab_size: *vocab_size
+      #     min_frequency: 10
+      class_path: lm.tokenizer.SentencePieceTokenizer
       init_args:
         config:
-          token_folder_path: ./tokenizer/bpe-300
+          token_folder_path: ./tokenizer/spm-256
           text_folder_path: ./data
           vocab_size: *vocab_size
-          min_frequency: 10
+          min_frequency: 10      
 
 
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
-    lr: 0.0001
-    weight_decay: 0.01
+    lr: 0.0003
+    betas: [0.9, 0.95]
+    eps: 1e-5
+    weight_decay: 0.1
 
 
 lr_scheduler:
-      class_path: torch.optim.lr_scheduler.StepLR
-      init_args:
-        step_size: 5
-        gamma: 0.8
-        verbose: True
+  class_path: torch.optim.lr_scheduler.StepLR
+  init_args:
+    step_size: 10
+    gamma: 0.8
+    verbose: True
