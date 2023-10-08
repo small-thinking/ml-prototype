@@ -7,12 +7,46 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import LRScheduler
 
 
 class LanguageModule(nn.Module, abc.ABC):
     def __init__(self, config: Dict[str, Any]):
         super().__init__()
         self.config = config
+
+
+class SwiGLU(nn.Module):
+    def __init__(self, embed_dim: int):
+        super(SwiGLU, self).__init__()
+        self.embed_dim = embed_dim
+
+        # Gated layer weights and bias
+        self.gate_weight = nn.Parameter(torch.Tensor(embed_dim))
+        self.gate_bias = nn.Parameter(torch.Tensor(embed_dim))
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.uniform_(self.gate_weight, -0.1, 0.1)
+        nn.init.zeros_(self.gate_bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Swish Part
+        swish = x * torch.sigmoid(x)
+
+        # Reshape the 1D gate_weight and gate_bias to 3D for linear transformation
+        gate_weight_3D = self.gate_weight[None, None, :]
+        gate_bias_3D = self.gate_bias[None, None, :]
+
+        # Gated Linear Unit Part
+        # Use broadcasting to apply the gate across the batch and sequence length
+        gate = torch.sigmoid((x * gate_weight_3D) + gate_bias_3D)
+
+        # SwiGLU
+        out = swish * gate
+
+        return out
 
 
 class RMSNorm(nn.Module):
@@ -227,11 +261,11 @@ class FeedForwardModel(nn.Module):
             elif norm_type == "rms_norm":
                 layers.append(RMSNorm(self.config, in_size))
         layers.append(nn.Linear(in_size, out_size))
-        if (
-            not is_last_layer
-            and self.config.get("activation_type", "relu").lower() == "relu"
-        ):
-            layers.append(nn.ReLU())
+        if not is_last_layer:
+            if self.config.get("activation_type", "relu").lower() == "relu":
+                layers.append(nn.ReLU())
+            else:
+                layers.append(SwiGLU(out_size))
         if not self.config.get("pre_norm", False):
             norm_type = self.config.get("norm_type", "layer_norm")
             if norm_type == "layer_norm":
@@ -272,10 +306,11 @@ class FeedForward(nn.Module):
         self.config = config
         embed_dim = config["embed_dim"]
         dropout = config.get("dropout_ratio", 0.01)
+        activate_type = config.get("activation_type", "relu").lower()
         # Feed forward layer is 4x wider of the embedding dimension
         self.net = nn.Sequential(
             nn.Linear(embed_dim, 4 * embed_dim),
-            nn.ReLU(),
+            nn.ReLU() if activate_type == "relu" else SwiGLU(4 * embed_dim),
             nn.Linear(4 * embed_dim, embed_dim),
             nn.Dropout(dropout),
         )
@@ -482,3 +517,49 @@ class TransformerLM(LanguageModule):
         logits = self.projection_layer(x)
 
         return logits
+
+
+class WarmupCosineDecayScheduler(LRScheduler):
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        warmup_steps: int = 2000,
+        target_lr: float = 0.0003,
+        min_lr: float = 0.00001,
+        steps_in_cycle: int = 1000000,
+        last_epoch: int = -1,
+        verbose: bool = False,
+    ):
+        """
+        Args:
+            optimizer (torch.optim.Optimizer): Optimizer to which the learning rate scheduler will be attached.
+            warmup_steps (int): Number of steps over which to increase the learning rate from 0 to target_lr.
+            target_lr (float): Learning rate to reach at the end of the warmup phase.
+            min_lr (float): Minimum learning rate during the cosine decay phase.
+            steps_in_cycle (int): Total number of steps in a cosine decay cycle.
+            last_epoch (int, optional): The index of the last epoch. Default is -1.
+            verbose (bool): Whether to print the lr.
+        """
+        self.warmup_steps = warmup_steps
+        self.target_lr = target_lr
+        self.min_lr = min_lr
+        self.steps_in_cycle = steps_in_cycle
+        super(WarmupCosineDecayScheduler, self).__init__(
+            optimizer, last_epoch, verbose=verbose
+        )
+
+    def get_lr(self) -> List[float]:
+        if self._step_count < self.warmup_steps:
+            # Warmup phase.
+            alpha = self._step_count / self.warmup_steps
+            lr_val = self.target_lr * alpha
+        elif self._step_count < self.steps_in_cycle:
+            # Cosine decay stage.
+            progress = (self._step_count - self.warmup_steps) / (
+                self.steps_in_cycle - self.warmup_steps
+            )
+            cosine_decay = 0.5 * (1 + math.cos(math.pi * progress))
+            lr_val = self.min_lr + (self.base_lrs[0] - self.min_lr) * cosine_decay
+        else:
+            lr_val = self.min_lr
+        return [lr_val for _ in self.base_lrs]

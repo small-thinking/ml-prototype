@@ -80,9 +80,33 @@ class TorchScriptCallback(pl.Callback):
 
 
 class Seq2SeqLM(pl.LightningModule):
-    def __init__(self, model: LanguageModule, loss: nn.Module, vocab_size: int):
+    def __init__(
+        self,
+        model: LanguageModule,
+        loss: nn.Module,
+        vocab_size: int,
+        checkpoint_dir: str = None,
+        checkpoint_epoch: str = None,
+        lr_schedule_interval: str = None,
+    ):
         super().__init__()
-        self.model = model
+
+        if checkpoint_dir is not None:
+            if checkpoint_epoch is not None:
+                # Load model from a specific checkpoint
+                checkpoint_path = os.path.join(
+                    checkpoint_dir, f"epoch={checkpoint_epoch}.ckpt"
+                )
+            else:
+                # Load the latest checkpoint
+                list_of_files = glob.glob(os.path.join(checkpoint_dir, "*.ckpt"))
+                checkpoint_path = max(list_of_files, key=os.path.getctime)
+
+            self.model = Seq2SeqLM.load_from_checkpoint(checkpoint_path).model
+        else:
+            self.model = model
+
+        self.lr_schedule_interval = lr_schedule_interval
         self.loss = loss
         self.vocab_size = vocab_size
 
@@ -117,7 +141,7 @@ class Seq2SeqLM(pl.LightningModule):
 
         # Log metrics
         metric_dict = {"loss": loss}
-        self.log_dict(metric_dict, prog_bar=True, on_epoch=True, on_step=False)
+        self.log_dict(metric_dict, prog_bar=True, on_epoch=True, on_step=True)
 
         return metric_dict
 
@@ -136,5 +160,11 @@ class Seq2SeqLM(pl.LightningModule):
         y_hat = y_hat.view(-1, self.vocab_size)  # [batch_size * seq_len, vocab_size]
         loss = self.loss(y_hat, y.view(-1))
         metric_dict = {"val_loss": loss}
-        self.log_dict(metric_dict, prog_bar=True, on_epoch=True, on_step=False)
+        self.log_dict(metric_dict, prog_bar=True, on_epoch=True, on_step=True)
         return metric_dict
+
+    def on_fit_start(self):
+        """Update the lr scheduler for step."""
+        if self.lr_schedulers and self.lr_schedule_interval == "step":
+            for lr_scheduler_config in self.trainer.lr_scheduler_configs:
+                lr_scheduler_config.interval = "step"
