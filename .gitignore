@@ -179,6 +179,15 @@ wandb/*
 # Data
 data/*
 tokenizer/*
+checkpoints/**
+nohup.out
 
 # git
 **/*.patch
+
+# pipelines
+ml_prototype/pipelines/**
+
+
+# Temp
+test.py
