@@ -95,7 +95,11 @@ class SingleFileDataset(Dataset):
             text += " ".join(rows)
         self.tokens = tokenizer.encode(text)
         self.seq_len = config["seq_len"]
-        self.num_samples = config.get("samples_per_epoch", 10000)
+        text_len = len(self.tokens)
+        # Sample based on the smaller of the the num_words / seq_len and the sample per epoch.
+        self.num_samples = min(
+            text_len // (self.seq_len // 5), config.get("samples_per_epoch", 10000)
+        )
 
     def __len__(self):
         return self.num_samples
@@ -143,5 +147,5 @@ class ConcatDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return torch.utils.data.DataLoader(
-            self.val_dataset, batch_size=self.batch_size, num_workers=8, pin_memory=True
+            self.val_dataset, batch_size=self.batch_size, num_workers=4, pin_memory=True
         )
