@@ -2,13 +2,10 @@ import argparse
 import os
 
 import torch
-from tokenizer import (
-    BytePairTokenizer,
-    NaiveTokenizer,
-    SentencePieceTokenizer,
-    Tokenizer,
-)
 from torch.nn.functional import softmax
+
+from tokenizer import (BytePairTokenizer, NaiveTokenizer,
+                       SentencePieceTokenizer, Tokenizer)
 
 
 class InferenceEngine:
