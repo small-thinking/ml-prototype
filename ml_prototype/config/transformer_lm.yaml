@@ -6,22 +6,20 @@ trainer:
   max_epochs: 20
   accumulate_grad_batches: 1
   gradient_clip_val: null
-  logger:
-    # - class_path: lightning.pytorch.loggers.TensorBoardLogger
-    #   init_args:
-    #     save_dir: ./lightning_logs
-    #     name: buffer-bpe300-ln-lp-d512-h4-l4-lr1e-4
-    - class_path: lightning.pytorch.loggers.WandbLogger
-      init_args:
-        project: dummy_model
-        name: &name test-bpe256-ln-lp-d512-h4l4-lr1e-3
+  # logger:
+  #   - class_path: lightning.pytorch.loggers.WandbLogger
+  #     init_args:
+  #       project: dummy_model
+  #       # name: &name books1-s-bpe5000-ln-lp-d512-h8l10-lr1e-4
+  #       name: &name philosopher-bpe256-ln-lp-d512-h4l4
 
   callbacks:
     - class_path: lm.model.DummyCallback
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
-        dirpath: ./checkpoints/test-bpe256-ln-lp-d512-h4l4-lr1e-3
-        every_n_epochs: 5
+        # dirpath: ./checkpoints/books1-s-bpe5000-ln-lp-d512-h8l10-lr1e-4
+        dirpath: ./checkpoints/philosopher-bpe256-ln-lp-d512-h4l4
+        every_n_epochs: 2
         filename: "{epoch}-{val_loss:.2f}"
         verbose: true
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
@@ -31,11 +29,11 @@ trainer:
       init_args:
         monitor: val_loss
         min_delta: 0.002
-        patience: 5
+        patience: 3
     - class_path: lm.model.TorchScriptCallback
       init_args:
         config:
-          batch_size: &batch_size 128
+          batch_size: &batch_size 32
           seq_len: &seq_len 512
           embed_dim: &embed_dim 512
           num_heads: &num_heads 4
@@ -44,11 +42,17 @@ trainer:
           activation_type: &activation_type relu
 
           pos_embedding_type: &pos_embedding_type simple
-          use_custom_attention: false
 
           vocab_size: &vocab_size 256  # for bpe/spm tokenizer
           # vocab_size: &vocab_size 216  # for char tokenizer
           save_every_epoch: 5
+    - class_path: lightning.pytorch.callbacks.GradientAccumulationScheduler
+      init_args:
+        scheduling:
+          0: 1
+          1: 5
+          5: 1
+          
 
 
 model:
@@ -69,6 +73,8 @@ model:
           pos_embedding_type: *pos_embedding_type
           vocab_size: *vocab_size
           activation_type: *activation_type
+          use_custom_attention: false
+          use_customized_scaled_doc_product_attention: false
 
     loss:
       class_path: torch.nn.CrossEntropyLoss
@@ -77,20 +83,22 @@ model:
     
 
 data:
-  class_path: lm.data_module.ConcatDataModule
+  # class_path: lm.data_module.ConcatDataModule
+  class_path: lm.data_module.IncrementalLoadDataModule
   init_args:
     config:
-      # data_folder: ./data/
-      data_folder: /home/jovyan/data/public/nlp/philosopher  # small test dataset
-      samples_per_epoch: 50000
+      data_folder: ./data/
+      # data_folder: &data_folder ../data/public/nlp/books1-small  # small test dataset
+      # data_folder: ../data/public/nlp/books1
+      samples_per_epoch: 5000
       batch_size: *batch_size
       seq_len: *seq_len
     tokenizer:
-      # class_path: lm.tokenizer.NaiveTokenizer
       class_path: lm.tokenizer.BytePairTokenizer
       init_args:
         config:
           token_folder_path: ./tokenizer/bpe-256
+          # token_folder_path: ./tokenizer/books1-small-bpe-5000
           text_folder_path: ./data
           vocab_size: *vocab_size
           min_frequency: 10
@@ -98,31 +106,25 @@ data:
       # class_path: lm.tokenizer.SentencePieceTokenizer
       # init_args:
       #   config:
-      #     token_folder_path: ./tokenizer/spm-2000
-      #     text_folder_path: ./data
+      #     token_folder_path: ./tokenizer/spm-5000
+      #     text_folder_path: *data_folder
       #     vocab_size: *vocab_size
-      #     min_frequency: 10      
 
 
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
-    lr: 0.0003
+    lr: 0.0001
     betas: [0.9, 0.95]
     eps: 1e-5
     weight_decay: 0.1
 
 
 lr_scheduler:
-  # class_path: torch.optim.lr_scheduler.StepLR
-  # init_args:
-  #   step_size: 2
-  #   gamma: 0.8
-  #   verbose: True
   class_path: lm.module.WarmupCosineDecayScheduler
   init_args:
-    warmup_steps: 1000
-    target_lr: 0.0003
+    warmup_steps: 2000
+    target_lr: 0.0001
     min_lr: 0.00001
     steps_in_cycle: 100000
     verbose: False

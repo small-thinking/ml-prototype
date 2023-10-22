@@ -199,6 +199,7 @@ class SentencePieceTokenizer(Tokenizer):
             input=self.text_folder_path,
             model_prefix=os.path.join(self.token_folder_path, self.model_name),
             vocab_size=self.vocab_size_config,
+            normalization_rule_name="identity",
         )
 
         self.sp = spm.SentencePieceProcessor()
