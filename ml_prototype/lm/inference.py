@@ -2,7 +2,12 @@ import argparse
 import os
 
 import torch
-from tokenizer import BytePairTokenizer, NaiveTokenizer, Tokenizer
+from tokenizer import (
+    BytePairTokenizer,
+    NaiveTokenizer,
+    SentencePieceTokenizer,
+    Tokenizer,
+)
 from torch.nn.functional import softmax
 
 
@@ -22,19 +27,29 @@ class InferenceEngine:
             self.tokenizer = BytePairTokenizer(
                 config={"token_folder_path": token_folder_path}
             )
+        elif self.tokenizer_type == "spm":
+            self.tokenizer = SentencePieceTokenizer(
+                config={"token_folder_path": token_folder_path}
+            )
         else:
             self.tokenizer = NaiveTokenizer(
                 config={"token_folder_path": token_folder_path}
             )
 
-    def inference(self, text: str, max_length: int = 256, temperature: float = 1.0):
+    def inference(
+        self,
+        text: str,
+        max_length: int = 256,
+        temperature: float = 1.0,
+        seq_len: int = 64,
+    ):
         print(f"Inference: {text}\n")
         input_tensor = self.tokenizer.encode(text).unsqueeze(0).to(self.device)
         generated_sequence = input_tensor
 
         with torch.no_grad():
             for _ in range(max_length):
-                generated_sequence_crop = generated_sequence[:, -256:]
+                generated_sequence_crop = generated_sequence[:, -seq_len:]
                 logits = self.model(generated_sequence_crop)
                 # Get the logit of the last token
                 last_logits = logits[:, -1, :]
@@ -47,8 +62,13 @@ class InferenceEngine:
                 generated_sequence = torch.cat([generated_sequence, next_token], dim=1)
 
                 # Decode the next token to text and yield it
-                next_token_text = self.tokenizer.decode(next_token[0])[0]
-                yield next_token_text
+                try:
+                    next_token_text = self.tokenizer.decode(next_token[0])[0]
+                    yield next_token_text
+                except Exception:
+                    print(f"Error next token: '{self.tokenizer.decode(next_token[0])}'")
+                    print(f"Next token: {next_token[0]}")
+                    exit()
 
                 if generated_sequence.size(1) >= max_length:
                     break
@@ -74,6 +94,13 @@ def main():
         help="Maximum length of generated sequence.",
     )
     parser.add_argument(
+        "--seq_len",
+        "-s",
+        type=int,
+        default=512,
+        help="Maximum length of generated sequence.",
+    )
+    parser.add_argument(
         "--temperature", "-t", type=float, default=1.0, help="Temperature for sampling."
     )
     parser.add_argument(
@@ -83,31 +110,35 @@ def main():
         "--tokenizer_type",
         "-tt",
         type=str,
-        default="char",
-        help='Tokenizer type: "char" or "bpe".',
+        default="bpe",
+        help='Tokenizer type: "char", "spm" or "bpe".',
     )
     parser.add_argument(
         "--token_folder_path",
         "-tf",
         type=str,
-        default="./tokenizer/char",
+        default="./tokenizer/bpe-256",
         help="The folder path of the token.",
     )
 
     # Parse the arguments
     args = parser.parse_args()
+    print(args)
     inference_engine = InferenceEngine(
         tokenizer_type=args.tokenizer_type,
         token_folder_path=args.token_folder_path,
         jit_model_path=os.path.join(
-            os.path.dirname(__file__), "../../model_epoch_30.pt"
+            os.path.dirname(__file__), "../../model_epoch_10.pt"
         ),
         device=args.device,
     )
 
     # Use parsed arguments
     for next_token_text in inference_engine.inference(
-        args.prompt, args.max_length, args.temperature
+        text=args.prompt,
+        max_length=args.max_length,
+        temperature=args.temperature,
+        seq_len=args.seq_len,
     ):
         print(next_token_text, end="")
 

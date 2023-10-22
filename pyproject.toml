@@ -16,6 +16,8 @@ numpy = "^1.25.1"
 lightning = "^2.0.6"
 jsonargparse = {extras = ["signatures"], version = "^4.23.1"}
 tensorboard = "^2.14.0"
+tokenizers = "^0.14.1"
+sentencepiece = "^0.1.99"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "7.4.0"
