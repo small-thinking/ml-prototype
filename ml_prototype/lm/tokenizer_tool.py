@@ -30,10 +30,10 @@ Author:
     Your Name
 """
 import argparse
-import json
 import os
+import random
+from typing import List
 
-import torch
 from tokenizer import BytePairTokenizer, SentencePieceTokenizer
 
 
@@ -96,6 +96,32 @@ def parse_args() -> argparse.Namespace:
         help="Folder where the trained tokenizer files are stored.",
     )
 
+    # Sub-command for merging and sampling .txt files
+    merge_parser = subparsers.add_parser(
+        "merge_sample", help="Merge and sample txt files"
+    )
+    merge_parser.add_argument(
+        "--folder_path",
+        "-d",
+        type=str,
+        required=True,
+        help="Folder containing the .txt files.",
+    )
+    merge_parser.add_argument(
+        "--k",
+        "-k",
+        type=float,
+        required=True,
+        help="Percentage of files to sample, should be between 0 and 100.",
+    )
+    merge_parser.add_argument(
+        "--output_filename",
+        "-o",
+        type=str,
+        required=True,
+        help="Name of the output file to write merged content to.",
+    )
+
     return parser.parse_args()
 
 
@@ -145,6 +171,47 @@ def encode_decode_text(args):
     print(f"Decoded: {decoded}")
 
 
+def merge_sample_txt_files(args) -> None:
+    """
+    Randomly sample k percent of the .txt files from a folder and merge them into one file.
+
+    Args:
+    - folder_path (str): Path to the folder containing .txt files.
+    - k (float): Percentage of files to sample, should be between 0 and 100.
+    - output_filename (str): Name of the output file to write merged content to.
+
+    Returns:
+    - None: Writes merged content to output_filename.
+    """
+    folder_path = args.folder_path
+    k = args.k
+    output_filename = args.output_filename
+
+    # List all .txt files in the folder
+    all_txt_files: List[str] = [
+        f for f in os.listdir(folder_path) if f.endswith(".txt")
+    ]
+
+    # Calculate the number of files to sample
+    num_files_to_sample: int = int(len(all_txt_files) * (k / 100))
+
+    # Randomly sample files
+    sampled_files: List[str] = random.sample(all_txt_files, num_files_to_sample)
+
+    # Merge content from sampled files
+    merged_content = ""
+    total_files = len(sampled_files)
+    for idx, file in enumerate(sampled_files):
+        with open(os.path.join(folder_path, file), "r") as f:
+            merged_content += f.read() + "\n\n"  # Add two newlines between files
+        print(f"Processed {idx+1}/{total_files} files.")
+
+    # Write merged content to output file
+    with open(output_filename, "w") as f:
+        f.write(merged_content)
+    print(f"Merged content written to {output_filename}")
+
+
 def main():
     """Main function."""
     args = parse_args()
@@ -153,9 +220,12 @@ def main():
         build_tokenizer(args)
     elif args.command == "encode_decode":
         encode_decode_text(args)
+    elif args.command == "merge_sample":
+        merge_sample_txt_files(args)
     else:
         print(
-            "Invalid command. Use 'build' to build a tokenizer or 'encode_decode' to encode and decode text."
+            "Invalid command. Use 'build' to build a tokenizer, 'encode_decode' to encode and decode text,"
+            " or 'merge_sample' to merge and sample txt files."
         )
 
 

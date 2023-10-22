@@ -2,13 +2,10 @@ import argparse
 import os
 
 import torch
-from tokenizer import (
-    BytePairTokenizer,
-    NaiveTokenizer,
-    SentencePieceTokenizer,
-    Tokenizer,
-)
 from torch.nn.functional import softmax
+
+from tokenizer import (BytePairTokenizer, NaiveTokenizer,
+                       SentencePieceTokenizer, Tokenizer)
 
 
 class InferenceEngine:
@@ -110,14 +107,14 @@ def main():
         "--tokenizer_type",
         "-tt",
         type=str,
-        default="char",
+        default="bpe",
         help='Tokenizer type: "char", "spm" or "bpe".',
     )
     parser.add_argument(
         "--token_folder_path",
         "-tf",
         type=str,
-        default="./tokenizer/char",
+        default="./tokenizer/bpe-256",
         help="The folder path of the token.",
     )
 
@@ -128,7 +125,7 @@ def main():
         tokenizer_type=args.tokenizer_type,
         token_folder_path=args.token_folder_path,
         jit_model_path=os.path.join(
-            os.path.dirname(__file__), "../../model_epoch_15.pt"
+            os.path.dirname(__file__), "../../model_epoch_10.pt"
         ),
         device=args.device,
     )

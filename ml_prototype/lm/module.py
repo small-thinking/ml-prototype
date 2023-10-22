@@ -106,63 +106,82 @@ class RMSNorm(nn.Module):
             return self.scale.unsqueeze(0).unsqueeze(0) * x_normed
 
 
-# class ScaledDotProductAttention(nn.Module):
-#     def __init__(self, temperature: int = 1.0, dropout_ratio: int = 0.0):
-#         super().__init__()
-#         self.dropout = nn.Dropout(dropout_ratio)
+class CustomScaledDotProductAttention(nn.Module):
+    def __init__(self, dropout_ratio: float = 0.0):
+        super().__init__()
+        self.dropout = nn.Dropout(dropout_ratio)
 
-#     def forward(self, q, k, v) -> torch.Tensor:
-#         """Forward pass for Scaled Dot Product Attention.
-#         An implementation of softmax(QK^T/sqrt(d_k)) * V.
+    def forward(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        dropout_ratio: float,
+        attn_mask: torch.Tensor = None,
+        is_causal: bool = False,  # Useless parameter for interface compatibility
+    ) -> torch.Tensor:
+        """Forward pass for Scaled Dot Product Attention.
 
-#         Args:
-#             q (torch.Tensor): The query tensor, in shape [n, q_len, d_k].
-#             k (torch.Tensor): The key tensor, in shape [n, k_len, d_k].
-#             v (torch.Tensor): The value tensor, in shape [n, k_len, d_v].
+        Args:
+            q (torch.Tensor): The query tensor, in shape [n, seq_len, embed_dim].
+            k (torch.Tensor): The key tensor, in shape [n, seq_len, embed_dim].
+            v (torch.Tensor): The value tensor, in shape [n, seq_len, embed_dim].
+            dropout_ratio (float): Useless parameter for interface compatibility.
+            attn_mask (torch.Tensor): The attention mask to apply to the input.
+            is_causal (bool): Useless parameter for interface compatibility.
 
-#         Returns:
-#             torch.Tensor: The context vector after attention, in shape [n, k_len, d_v].
-#         """
-#         dk = q.shape[-1]
-#         attn = (q @ k) / math.sqrt(dk)
-#         attn = F.softmax(attn, dim=-1)
-#         output = torch.matmul(self.dropout(attn), v)
-#         return output
+        Returns:
+            torch.Tensor: The context vector after attention, in shape [n, seq_len, embed_dim].
+        """
+        dk = q.shape[-1]  # seq_len
+        # Compute the dot product between query and key tensors.
+        attn = (q @ k.transpose(-2, -1)) / math.sqrt(dk)  # Shape: [n, seq_len, seq_len]
+        assert attn_mask is not None
+        if attn_mask is not None:
+            attn = attn + attn_mask
+        attn = F.softmax(attn, dim=-1)  # Shape: [n, seq_len, seq_len]
+        attn = self.dropout(attn)
+        # Compute the context vector by taking a weighted sum of the values.
+        output = attn @ v  # Shape: [n, seq_len, embed_dim]
+        return output
 
 
-class Attention(nn.Module):
+class CustomAttention(nn.Module):
     def __init__(
         self,
-        embed_dim: int,
-        num_heads: int,
-        dropout_ratio: int = 0.0,
+        config: Dict[str, Any],
     ):
         """Constructor of the Attention class."""
         super().__init__()
 
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.dropout_ratio = dropout_ratio
+        self.embed_dim = config["embed_dim"]
+        self.num_heads = config["num_heads"]
+        self.dropout_ratio = config.get("dropout_ratio", 0.01)
 
         # Split embedding size into heads, validated by `embed_size % num_heads == 0`.
         assert (
-            embed_dim % num_heads == 0
-        ), f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})."
+            self.embed_dim % self.num_heads == 0
+        ), f"embed_dim ({self.embed_dim}) must be divisible by num_heads ({self.num_heads})."
 
-        self.head_dim = embed_dim // num_heads
+        self.head_dim = self.embed_dim // self.num_heads
 
         # Initialize linear layers for query, key, and value projections.
-        self.query = nn.Linear(embed_dim, embed_dim)
-        self.key = nn.Linear(embed_dim, embed_dim)
-        self.value = nn.Linear(embed_dim, embed_dim)
+        self.query = nn.Linear(self.embed_dim, self.embed_dim)
+        self.key = nn.Linear(self.embed_dim, self.embed_dim)
+        self.value = nn.Linear(self.embed_dim, self.embed_dim)
 
         # Scaled dot product layer.
-        self.scaled_dot_product_attention = (
-            F.scaled_dot_product_attention
-        )  # torch.nn.scaled_dot_product_attention
+        if not config.get("use_customized_scaled_doc_product_attention", False):
+            self.scaled_dot_product_attention = (
+                F.scaled_dot_product_attention
+            )  # torch.nn.scaled_dot_product_attention
+        else:
+            self.scaled_dot_product_attention = CustomScaledDotProductAttention(
+                dropout_ratio=self.dropout_ratio
+            )
 
         # Output projection layer.
-        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        self.out_proj = nn.Linear(self.embed_dim, self.embed_dim)
 
     def forward(
         self,
@@ -213,7 +232,12 @@ class Attention(nn.Module):
 
         # Step 3: Compute scaled dot-product attention.
         attn_output = self.scaled_dot_product_attention(
-            Q, K, V, attn_mask, self.dropout_ratio, is_causal
+            Q,
+            K,
+            V,
+            attn_mask=attn_mask,
+            dropout_ratio=self.dropout_ratio,
+            is_causal=is_causal,
         )
 
         # Step 4 and 5: Reshape and project output.
@@ -264,6 +288,8 @@ class FeedForwardModel(nn.Module):
         if not is_last_layer:
             if self.config.get("activation_type", "relu").lower() == "relu":
                 layers.append(nn.ReLU())
+            elif self.config.get("activation_type", "gelu").lower() == "gelu":
+                layers.append(nn.GELU())
             else:
                 layers.append(SwiGLU(out_size))
         if not self.config.get("pre_norm", False):
@@ -307,10 +333,17 @@ class FeedForward(nn.Module):
         embed_dim = config["embed_dim"]
         dropout = config.get("dropout_ratio", 0.01)
         activate_type = config.get("activation_type", "relu").lower()
+        if activate_type == "gelu":
+            activation = nn.GELU()
+        elif activate_type == "swiglu":
+            activation = SwiGLU(4 * embed_dim)
+        else:
+            activation = nn.ReLU()
+
         # Feed forward layer is 4x wider of the embedding dimension
         self.net = nn.Sequential(
             nn.Linear(embed_dim, 4 * embed_dim),
-            nn.ReLU() if activate_type == "relu" else SwiGLU(4 * embed_dim),
+            activation,
             nn.Linear(4 * embed_dim, embed_dim),
             nn.Dropout(dropout),
         )
@@ -328,19 +361,17 @@ class TransformerBlock(nn.Module):
         self.seq_len = config["seq_len"]
         self.norm_type = config.get("norm_type", "simple")
 
-        if config.get("use_custom_attention", False):
+        if not config.get("use_custom_attention", False):
             self.attention = nn.MultiheadAttention(
                 embed_dim=self.embed_dim,
                 num_heads=self.num_heads,
                 dropout=self.dropout_ratio,
                 batch_first=True,
             )
+            self.is_causal = True
         else:
-            self.attention = Attention(
-                embed_dim=self.embed_dim,
-                num_heads=self.num_heads,
-                dropout_ratio=self.dropout_ratio,
-            )
+            self.attention = CustomAttention(config=config)
+            self.is_causal = False
         self.feed_forward = FeedForward(config)
 
         if self.norm_type == "rms":
@@ -364,7 +395,11 @@ class TransformerBlock(nn.Module):
         # Attention with residual.
         norm_x = self.norm1(x)
         attn_output, _ = self.attention(
-            query=norm_x, key=norm_x, value=norm_x, attn_mask=None, is_causal=True
+            query=norm_x,
+            key=norm_x,
+            value=norm_x,
+            attn_mask=attn_mask,
+            is_causal=self.is_causal,
         )
         x = x + attn_output
         # Feed forward with residual.
@@ -402,6 +437,8 @@ class SimplePositionEmbedding(nn.Module):
         self.config = config
         self.seq_len, self.embed_dim = config["seq_len"], config["embed_dim"]
         self.pos_embedding_table = nn.Embedding(self.seq_len, self.embed_dim)
+        dropout_rate = config.get("dropout_ratio", 0.01)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         actual_seq_len = min(x.shape[1], self.seq_len)
@@ -409,6 +446,7 @@ class SimplePositionEmbedding(nn.Module):
             torch.arange(actual_seq_len, device=x.device)
         )
         x = x + pos_embedding
+        x = self.dropout(x)
         return x
 
 
