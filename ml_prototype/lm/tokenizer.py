@@ -1,10 +1,10 @@
 import abc
-import argparse
 import json
 import os
 from glob import glob
 from typing import Any, Dict, List, Sequence, Union
 
+import sentencepiece as spm
 import torch
 from tokenizers import ByteLevelBPETokenizer
 
@@ -165,64 +165,57 @@ class BytePairTokenizer(Tokenizer):
         return decoded_text
 
 
-def parse_args() -> Dict[str, str]:
-    parser = argparse.ArgumentParser(description="Train a BytePairTokenizer")
+class SentencePieceTokenizer(Tokenizer):
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.vocab_size_config = self.config.get("vocab_size", 5000)
+        self.token_folder_path = self.config.get("token_folder_path")
+        self.model_name = self.config.get("model_name", "spm_model")
+        self.model_path = os.path.join(
+            self.token_folder_path, f"{self.model_name}.model"
+        )
 
-    # Argument to specify the folder containing the training data
-    parser.add_argument(
-        "--text_folder_path",
-        "-d",
-        type=str,
-        default="./data",
-        help="Folder containing the text files to train the tokenizer.",
-    )
+        # Create the token folder path if it doesn't exist
+        if not os.path.exists(os.path.dirname(self.model_path)):
+            os.makedirs(os.path.dirname(self.model_path))
 
-    # Argument to specify where to save the tokenizer files
-    parser.add_argument(
-        "--token_folder_path",
-        "-t",
-        type=str,
-        default="./tokenizer/bpe",
-        help="Folder to save the trained tokenizer files.",
-    )
+        self.text_folder_path = self.config.get("text_folder_path")
 
-    # Argument to specify the vocab size for the tokenizer
-    parser.add_argument(
-        "--vocab_size",
-        "-v",
-        type=int,
-        default=5000,
-        help="Vocabulary size for the tokenizer.",
-    )
+        if os.path.exists(self.model_path):
+            self.sp = spm.SentencePieceProcessor()
+            self.sp.load(self.model_path)
+        elif self.text_folder_path:
+            self.sp = None
+        else:
+            raise ValueError(
+                "Either provide a pretrained model path or an input file path for training."
+            )
 
-    # Argument to specify the minimum frequency for subwords
-    parser.add_argument(
-        "--min_frequency",
-        "-m",
-        type=int,
-        default=2,
-        help="Minimum frequency for subwords in the training data.",
-    )
+    def train(self):
+        if not self.text_folder_path:
+            raise ValueError("An input file path must be specified for training.")
 
-    parser.add_argument("--prompt", "-p", type=str)
+        spm.SentencePieceTrainer.train(
+            input=self.text_folder_path,
+            model_prefix=os.path.join(self.token_folder_path, self.model_name),
+            vocab_size=self.vocab_size_config,
+            normalization_rule_name="identity",
+        )
 
-    return vars(parser.parse_args())
+        self.sp = spm.SentencePieceProcessor()
+        self.sp.load(self.model_path)
 
+    def vocab_size(self) -> int:
+        return self.sp.get_piece_size()
 
-def main(args: Dict[str, str]):
-    # Configurations for the BytePairTokenizer
-    config = {
-        "text_folder_path": args["text_folder_path"],
-        "token_folder_path": args["token_folder_path"],
-        "vocab_size": args["vocab_size"],
-        "min_frequency": args["min_frequency"],
-    }
+    def encode(self, text: str) -> torch.Tensor:
+        return torch.tensor(self.sp.encode_as_ids(text))
 
-    # Initialize and train the tokenizer
-    tokenizer = BytePairTokenizer(config)
-    tokenizer.train()
-
-
-if __name__ == "__main__":
-    args = parse_args()
-    main(args)
+    def decode(self, tensor: torch.Tensor) -> str:
+        if isinstance(tensor, torch.Tensor):
+            tensor = tensor.cpu().tolist()
+        decoded = self.sp.decode_ids(tensor)
+        if not decoded:
+            print("Warning: Decode returned an empty string.")
+            return ""
+        return decoded
