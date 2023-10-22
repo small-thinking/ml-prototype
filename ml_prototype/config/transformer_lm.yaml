@@ -33,7 +33,7 @@ trainer:
     - class_path: lm.model.TorchScriptCallback
       init_args:
         config:
-          batch_size: &batch_size 128
+          batch_size: &batch_size 32
           seq_len: &seq_len 512
           embed_dim: &embed_dim 512
           num_heads: &num_heads 4
