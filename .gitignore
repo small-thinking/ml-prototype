@@ -181,6 +181,7 @@ data/*
 tokenizer/*
 checkpoints/**
 nohup.out
+**/twitter.json
 
 # git
 **/*.patch
