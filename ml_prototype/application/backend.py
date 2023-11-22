@@ -1,0 +1,170 @@
+import os
+import time
+from typing import Any, Dict, List, Optional
+
+from dotenv import load_dotenv
+from openai import OpenAI
+from openai.types.beta import Assistant, Thread
+from openai.types.beta.threads import Run, ThreadMessage
+from tools import *
+from utils import Logger
+from voice import *
+
+
+def create_assistant(
+    client: OpenAI, tools: Dict[str, Tool], logger: Logger, verbose: bool = False
+) -> Assistant:
+    if not client:
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    tool_signatures: List[Dict[str, Any]] = [
+        tool.get_signature() for tool in tools.values()
+    ]
+    assistant = client.beta.assistants.create(
+        name="Voice Robot Controller",
+        instructions="You are controller of the robot arm, and you receive voice command from the human being, and convert the command to program to control the robot.",
+        tools=tool_signatures,
+        # model="gpt-4-1106-preview",
+        model="gpt-3.5-turbo-1106",
+    )
+    if verbose:
+        logger.info(f"Assistant created: {assistant}")
+    return assistant
+
+
+def create_run(
+    client: OpenAI,
+    assistant_id: str,
+    thread_id: str,
+    instructions: str,
+    logger: Logger,
+    verbose: bool,
+) -> Run:
+    run = client.beta.threads.runs.create(
+        thread_id=thread_id,
+        assistant_id=assistant_id,
+        instructions=instructions,
+    )
+    if verbose:
+        logger.info(f"Run created: {run}")
+    return run
+
+
+def wait_for_run(
+    client: OpenAI,
+    thread_id: str,
+    run_id: str,
+    tools: Dict[str, Any],
+    logger: Logger,
+    verbose: bool = False,
+) -> None:
+    while True:
+        run = client.beta.threads.runs.retrieve(
+            thread_id=thread_id,
+            run_id=run_id,
+        )
+        if run.status == "completed":
+            messages = client.beta.threads.messages.list(
+                thread_id=thread_id, limit=2, order="desc"
+            )
+            for message in messages:
+                print(f"{message.role.capitalize()}: {message.content[0].text.value}")
+                break
+            break
+        elif run.status == "in_progress" or run.status == "queued":
+            if verbose:
+                logger.info(f"Run in progress: {run}\n\n")
+            time.sleep(1)
+        elif run.status == "requires_action":
+            if verbose:
+                logger.info(f"Run requires action.")
+            required_actions = run.required_action.submit_tool_outputs.model_dump()
+            if verbose:
+                logger.info(required_actions)
+            tools_outputs = []
+            for action in required_actions["tool_calls"]:
+                output = use_tool(
+                    tools=tools, action=action, logger=logger, verbose=verbose
+                )
+                if verbose:
+                    logger.info(f"Output from {action['id']} tool: {output}")
+                tools_outputs.append(
+                    {
+                        "tool_call_id": action["id"],
+                        "output": output,
+                    }
+                )
+            # Submit the tool outputs to Assistant API
+            if verbose:
+                logger.info(f"Submitting tool outputs: {tools_outputs}")
+            client.beta.threads.runs.submit_tool_outputs(
+                thread_id=thread_id,
+                run_id=run_id,
+                tool_outputs=tools_outputs,
+            )
+        else:
+            logger.error(f"Run failed: {run.status}\n\n")
+            break
+
+
+def cleanup(
+    client: OpenAI, logger: Optional[Logger] = None, verbose: bool = False
+) -> None:
+    pass
+
+
+def start_conversation(verbose: bool, nudge_user: bool, logger: Logger) -> None:
+    load_dotenv()
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    tools = init_tools(logger=logger, verbose=verbose)
+    assistant = create_assistant(
+        client=client, tools=tools, logger=logger, verbose=verbose
+    )
+    thread = client.beta.threads.create()
+
+    if verbose:
+        logger.info(f"Thread created: {thread}")
+
+    while True:
+        # user_input = generate_transcription(verbose=False)  # Get input from voice
+        print("User: ", end="")
+        user_input = input()
+
+        if user_input.lower() == "exit":
+            break
+
+        if not user_input and nudge_user:
+            logger.warning("No input detected. Please speak clearly.")
+            continue
+        message = client.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=user_input,
+        )
+        if verbose:
+            logger.info(f"Message created: {message}")
+
+        run = create_run(
+            client=client,
+            assistant_id=assistant.id,
+            thread_id=thread.id,
+            instructions=user_input,
+            logger=logger,
+            verbose=verbose,
+        )
+        wait_for_run(
+            client=client,
+            thread_id=thread.id,
+            run_id=run.id,
+            tools=tools,
+            logger=logger,
+            verbose=verbose,
+        )
+
+    cleanup(client=client, verbose=verbose, logger=logger)
+
+
+if __name__ == "__main__":
+    verbose = False
+    nudge_user = True
+    logger = Logger(__name__)
+    start_conversation(verbose=verbose, nudge_user=nudge_user, logger=logger)
