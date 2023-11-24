@@ -4,6 +4,7 @@ import time
 import wave
 
 import pyaudio
+import pygame
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -127,6 +128,31 @@ def generate_transcription(verbose: bool = True) -> str:
     if verbose:
         print("Transcribed Text:", transcription)
     return transcription
+
+
+def speak(text: str, client: OpenAI) -> None:
+    # Generate the speech audio using TTS
+    response = client.audio.speech.create(
+        model="tts-1",
+        voice="nova",
+        input=text,
+    )
+
+    # Stream the audio to a file
+    audio_filename = "output.mp3"
+    response.stream_to_file(audio_filename)
+
+    # Initialize pygame mixer
+    pygame.mixer.init()
+    pygame.mixer.music.load(audio_filename)
+    pygame.mixer.music.play()
+
+    # Wait for the audio to finish playing
+    while pygame.mixer.music.get_busy():
+        pygame.time.Clock().tick(10)
+
+    # Delete the mp3 file
+    os.remove(audio_filename)
 
 
 if __name__ == "__main__":

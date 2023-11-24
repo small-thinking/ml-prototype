@@ -3,6 +3,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
+import requests
 from colorama import Fore
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -78,6 +79,10 @@ class OperationSequenceGenerator:
         The expected output would be:
         {{
             operations: [
+                {{
+                    "operation": "move_single_servo",
+                    "parameters": {{"id": 1, "angle": 60, "time": 500}}
+                }},
                 {{
                     "operation": "set_rgb_light",
                     "parameters": {{"R": 255, "G": 0, "B": 0}}
@@ -185,3 +190,18 @@ class SimulatedRobotArmControl(RobotArmControl):
             + f"Executing {operation_name} with parameters: {operation_params}"
             + Fore.RESET
         )
+
+
+class RobotArmControlClient(RobotArmControl):
+    """
+    Real control for a robotic arm, sending operations as HTTP requests.
+    """
+
+    def __init__(self, endpoint_url: str = "http://192.168.0.238:5000/execute"):
+        self.endpoint_url = endpoint_url
+
+    def _execute_operations(self, operations: List[Dict[str, Any]]) -> None:
+        response = requests.post(self.endpoint_url, json={"operations": operations})
+        if response.status_code != 200:
+            raise Exception(f"Failed to execute operations: {response.text}")
+        print(f"Operations executed successfully: {response.text}")
