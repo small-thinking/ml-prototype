@@ -9,6 +9,7 @@ from utils import Logger
 
 from ml_prototype.application.robot_arm import (
     OperationSequenceGenerator,
+    RobotArmControlClient,
     SimulatedRobotArmControl,
 )
 
@@ -95,16 +96,14 @@ class RobotArmController(Tool):
         if simulation:
             self.robot_arm_control = SimulatedRobotArmControl()
         else:
-            # Uncomment and use the real robot arm control when implemented
-            # self.robot_arm_control = RealRobotArmControl()
-            pass
+            self.robot_arm_control = RobotArmControlClient()
 
     def get_signature(self) -> Dict[str, Any]:
         signature = {
             "type": "function",
             "function": {
                 "name": "robot_arm",
-                "description": "Simulate operations on a robotic arm",
+                "description": "Operate on a robotic arm, you would send the instruction in text.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -138,11 +137,14 @@ class RobotArmController(Tool):
 
 def init_tools(logger: Logger, verbose: bool = False):
     tools = {
-        "search_engine": SearchEngine(
-            name="search_engine", logger=logger, verbose=verbose
-        ),
+        # "search_engine": SearchEngine(
+        #     name="search_engine", logger=logger, verbose=verbose
+        # ),
         "robot_arm": RobotArmController(
-            name="robot_arm", logger=logger, verbose=verbose
+            name="robot_arm",
+            logger=logger,
+            verbose=verbose,
+            simulation=False,
         ),
     }
     return tools

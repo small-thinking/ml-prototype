@@ -21,7 +21,7 @@ def create_assistant(
     ]
     assistant = client.beta.assistants.create(
         name="Voice Robot Controller",
-        instructions="You are controller of the robot arm, and you receive voice command from the human being, and convert the command to program to control the robot.",
+        instructions="You have a brain and a robot arm, and you receive voice command from the human being, and respond accordingly.",
         tools=tool_signatures,
         # model="gpt-4-1106-preview",
         model="gpt-3.5-turbo-1106",
@@ -56,7 +56,7 @@ def wait_for_run(
     tools: Dict[str, Any],
     logger: Logger,
     verbose: bool = False,
-) -> None:
+) -> str:
     while True:
         run = client.beta.threads.runs.retrieve(
             thread_id=thread_id,
@@ -66,14 +66,18 @@ def wait_for_run(
             messages = client.beta.threads.messages.list(
                 thread_id=thread_id, limit=2, order="desc"
             )
+            response = ""
             for message in messages:
+                response += message.content[0].text.value
                 print(f"{message.role.capitalize()}: {message.content[0].text.value}")
                 break
-            break
+            return response
         elif run.status == "in_progress" or run.status == "queued":
             if verbose:
-                logger.info(f"Run in progress: {run}\n\n")
-            time.sleep(1)
+                logger.info(
+                    f"Run in progress: {run.required_action}, {run.status}, {run.tools if hasattr(run, 'tools') else ''}\n\n"
+                )
+            time.sleep(2)
         elif run.status == "requires_action":
             if verbose:
                 logger.info(f"Run requires action.")
@@ -112,7 +116,13 @@ def cleanup(
     pass
 
 
-def start_conversation(verbose: bool, nudge_user: bool, logger: Logger) -> None:
+def start_conversation(
+    verbose: bool,
+    nudge_user: bool,
+    use_voice_input: bool,
+    use_voice_output: bool,
+    logger: Logger,
+) -> None:
     load_dotenv()
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     tools = init_tools(logger=logger, verbose=verbose)
@@ -125,9 +135,13 @@ def start_conversation(verbose: bool, nudge_user: bool, logger: Logger) -> None:
         logger.info(f"Thread created: {thread}")
 
     while True:
-        # user_input = generate_transcription(verbose=False)  # Get input from voice
-        print("User: ", end="")
-        user_input = input()
+        if use_voice_input:
+            # Assuming generate_transcription is a function that handles voice transcription
+            user_input = generate_transcription(verbose=False)
+            print(f"User: {user_input}")
+        else:
+            print("User: ", end="")
+            user_input = input()
 
         if user_input.lower() == "exit":
             break
@@ -135,6 +149,7 @@ def start_conversation(verbose: bool, nudge_user: bool, logger: Logger) -> None:
         if not user_input and nudge_user:
             logger.warning("No input detected. Please speak clearly.")
             continue
+
         message = client.beta.threads.messages.create(
             thread_id=thread.id,
             role="user",
@@ -151,7 +166,7 @@ def start_conversation(verbose: bool, nudge_user: bool, logger: Logger) -> None:
             logger=logger,
             verbose=verbose,
         )
-        wait_for_run(
+        response = wait_for_run(
             client=client,
             thread_id=thread.id,
             run_id=run.id,
@@ -160,11 +175,23 @@ def start_conversation(verbose: bool, nudge_user: bool, logger: Logger) -> None:
             verbose=verbose,
         )
 
+        if use_voice_output:
+            # Assuming speak is a function that handles text-to-speech
+            speak(text=response, client=client)
+
     cleanup(client=client, verbose=verbose, logger=logger)
 
 
 if __name__ == "__main__":
-    verbose = False
+    verbose = True
     nudge_user = True
+    use_voice_input = True  # Set to True to enable voice input
+    use_voice_output = True  # Set to True to enable voice output
     logger = Logger(__name__)
-    start_conversation(verbose=verbose, nudge_user=nudge_user, logger=logger)
+    start_conversation(
+        verbose=verbose,
+        nudge_user=nudge_user,
+        use_voice_input=use_voice_input,
+        use_voice_output=use_voice_output,
+        logger=logger,
+    )
