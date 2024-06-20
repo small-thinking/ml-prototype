@@ -1,6 +1,7 @@
 seed_everything: null
 trainer:
-  precision: 16-mixed
+  # precision: 16-mixed
+  accelerator: auto
   devices: 1
   # strategy: ddp
   max_epochs: 20
@@ -8,7 +9,7 @@ trainer:
   gradient_clip_val: null
 
   callbacks:
-    - class_path: lm.model.DummyCallback
+    - class_path: ml_prototype.lm.model.DummyCallback
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         # dirpath: ./checkpoints/books1-s-bpe5000-ln-lp-d512-h8l10-lr1e-4
@@ -24,15 +25,6 @@ trainer:
         monitor: val_loss
         min_delta: 0.002
         patience: 3
-    - class_path: lm.model.TorchScriptCallback
-      init_args:
-        config:
-          batch_size: &batch_size 1
-          seq_len: &seq_len 512
-          layer_sizes: &layer_sizes [512, 256, 512]
-          dropout: &dropout_ratio 0.1
-          activation_type: &activation_type relu
-          save_every_epoch: 5
     # - class_path: lightning.pytorch.callbacks.GradientAccumulationScheduler
     #   init_args:
     #     scheduling:
@@ -41,18 +33,39 @@ trainer:
     #       5: 1
 
 model:
-  class_path: lm.autoencoder_model.AutoEncoder
+  class_path: ml_prototype.lm.autoencoder_model.AutoEncoderModel
   init_args:
-    data_folder: ./data/
-    layer_sizes: *layer_sizes
-    dropout: *dropout_ratio
-    activation_type: *activation_type
-  loss:
-    class_path: torch.nn.MSELoss
+    model:
+      class_path: ml_prototype.lm.autoencoder_module.AutoEncoder
+      init_args:
+        config:
+          layer_sizes: [196608, 1024, 196608]
+          dropout: 0.1
+          activation_type: relu
+    loss:
+      class_path: torch.nn.MSELoss
 
 data:
-  class_path: lm.data_module.ImageDataModule
+  class_path: ml_prototype.lm.data_module.ImageDataModule
   init_args:
     config:
-      data_folder: ./data/
-      batch_size: *batch_size
+      data_folder: ~/Downloads/Pistachio_Image_Dataset/Pistachio_Image_Dataset
+      train_folder_name: Kirmizi_Pistachio
+      val_folder_name: Siirt_Pistachio
+      batch_size: 2
+    transform:
+      class_path: torchvision.transforms.Compose
+      init_args:
+        transforms:
+          - class_path: torchvision.transforms.Resize
+            init_args:
+              size: [256, 256]
+          - class_path: torchvision.transforms.ToTensor
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 0.0001
+    betas: [0.9, 0.95]
+    eps: 1e-5
+    weight_decay: 0.1

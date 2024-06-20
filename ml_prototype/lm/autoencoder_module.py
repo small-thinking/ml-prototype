@@ -8,11 +8,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LRScheduler
 
-class AutoEncoderLLM(nn.Module):
+class AutoEncoder(nn.Module):
     """Autoencoder model for the LLM.
     """
     def __init__(self, config: Dict[str, Any]):
-        super(AutoEncoderLLM, self).__init__()
+        super(AutoEncoder, self).__init__()
         self.config = config
         self.layer_sizes = self.config["layer_sizes"]
         self.dropout = self.config["dropout"]

@@ -296,38 +296,40 @@ class IncrementalLoadDataModule(pl.LightningDataModule):
 class ImageFileDataset(Dataset):
     """Dataset for image files."""
     
-    def __init__(self, folder_dir: str, transform: Optional[transforms.Compose], suffix: str = ".jpg"):
-        self.folder_dir = folder_dir
+    def __init__(self, folder_dir: str, transform: transforms.Compose, suffix: str = ".jpg"):
+        self.folder_dir = os.path.expanduser(folder_dir)
         self.transform = transform
         self.suffix = suffix
-        self.filenames = glob(os.path.join(folder_dir, f"*{suffix}"))
+        self.filenames = [os.path.join(self.folder_dir, f) for f in os.listdir(self.folder_dir) if f.endswith(suffix)]
         
     def __len__(self):
         return len(self.filenames)
     
     def __getitem__(self, idx):
-        img = Image.open(self.filenames[idx])
+        img = Image.open(self.filenames[idx]).convert("RGB")
         if self.transform:
             img = self.transform(img)
+        # Reshape to (batch_size, flatten_image)
+        img = img.view(-1)
         return img
     
     
 class ImageDataModule(pl.LightningDataModule):
     """Data module for image files."""
     
-    def __init__(self, config: Dict[str, Any], transform: Optional[transforms.Compose]):
+    def __init__(self, config: Dict[str, Any], transform: transforms.Compose):
         super().__init__()
         self.config = config
         self.transform = transform
-        self.data_folder = str(config["data_folder"])
+        self.data_folder = os.path.expanduser(config["data_folder"])
         self.batch_size = config["batch_size"]
+        self.train_folder_name = config.get("train_folder_name", "train")
+        self.val_folder_name = config.get("val_folder_name", "val")
+        print(f"Config: {config}")
         
-    def prepare_data(self):
-        pass
-        
-    def setup(self):
-        train_folder = os.path.join(self.data_folder, "train")
-        val_folder = os.path.join(self.data_folder, "val")
+    def setup(self, stage=None):
+        train_folder = os.path.join(self.data_folder, self.train_folder_name)
+        val_folder = os.path.join(self.data_folder, self.val_folder_name)
         self.train_dataset = ImageFileDataset(train_folder, transform=self.transform)
         self.val_dataset = ImageFileDataset(val_folder, transform=self.transform)
         
