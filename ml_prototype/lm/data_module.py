@@ -2,17 +2,17 @@
 """
 import datetime
 import hashlib
-import json
 import os
 import random
-from collections import deque
 from glob import glob
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 import lightning.pytorch as pl
 import torch
-from lm.tokenizer import BytePairTokenizer, Tokenizer
+from ml_prototype.lm.tokenizer import Tokenizer
 from torch.utils.data import ConcatDataset, Dataset
+from torchvision import transforms
+from PIL import Image
 
 
 class InMemoryDataset(Dataset):
@@ -290,4 +290,61 @@ class IncrementalLoadDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         return torch.utils.data.DataLoader(
             self.val_dataset, batch_size=self.batch_size, num_workers=4, pin_memory=True
+        )
+
+
+class ImageFileDataset(Dataset):
+    """Dataset for image files."""
+    
+    def __init__(self, folder_dir: str, transform: Optional[transforms.Compose], suffix: str = ".jpg"):
+        self.folder_dir = folder_dir
+        self.transform = transform
+        self.suffix = suffix
+        self.filenames = glob(os.path.join(folder_dir, f"*{suffix}"))
+        
+    def __len__(self):
+        return len(self.filenames)
+    
+    def __getitem__(self, idx):
+        img = Image.open(self.filenames[idx])
+        if self.transform:
+            img = self.transform(img)
+        return img
+    
+    
+class ImageDataModule(pl.LightningDataModule):
+    """Data module for image files."""
+    
+    def __init__(self, config: Dict[str, Any], transform: Optional[transforms.Compose]):
+        super().__init__()
+        self.config = config
+        self.transform = transform
+        self.data_folder = str(config["data_folder"])
+        self.batch_size = config["batch_size"]
+        
+    def prepare_data(self):
+        pass
+        
+    def setup(self):
+        train_folder = os.path.join(self.data_folder, "train")
+        val_folder = os.path.join(self.data_folder, "val")
+        self.train_dataset = ImageFileDataset(train_folder, transform=self.transform)
+        self.val_dataset = ImageFileDataset(val_folder, transform=self.transform)
+        
+    def train_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=8,
+            pin_memory=True,
+        )
+        
+    def val_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=8,
+            pin_memory=True,
         )

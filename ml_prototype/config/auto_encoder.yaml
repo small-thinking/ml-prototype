@@ -1,0 +1,58 @@
+seed_everything: null
+trainer:
+  precision: 16-mixed
+  devices: 1
+  # strategy: ddp
+  max_epochs: 20
+  accumulate_grad_batches: 1
+  gradient_clip_val: null
+
+  callbacks:
+    - class_path: lm.model.DummyCallback
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        # dirpath: ./checkpoints/books1-s-bpe5000-ln-lp-d512-h8l10-lr1e-4
+        dirpath: ./checkpoints/auto-encoder
+        every_n_epochs: 2
+        filename: "{epoch}-{val_loss:.2f}"
+        verbose: true
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: val_loss
+        min_delta: 0.002
+        patience: 3
+    - class_path: lm.model.TorchScriptCallback
+      init_args:
+        config:
+          batch_size: &batch_size 1
+          seq_len: &seq_len 512
+          layer_sizes: &layer_sizes [512, 256, 512]
+          dropout: &dropout_ratio 0.1
+          activation_type: &activation_type relu
+          save_every_epoch: 5
+    # - class_path: lightning.pytorch.callbacks.GradientAccumulationScheduler
+    #   init_args:
+    #     scheduling:
+    #       0: 1
+    #       1: 5
+    #       5: 1
+
+model:
+  class_path: lm.autoencoder_model.AutoEncoder
+  init_args:
+    data_folder: ./data/
+    layer_sizes: *layer_sizes
+    dropout: *dropout_ratio
+    activation_type: *activation_type
+  loss:
+    class_path: torch.nn.MSELoss
+
+data:
+  class_path: lm.data_module.ImageDataModule
+  init_args:
+    config:
+      data_folder: ./data/
+      batch_size: *batch_size
