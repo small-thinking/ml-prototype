@@ -222,13 +222,13 @@ class CustomAttention(nn.Module):
         # Step 2: Reshape for multi-head attention.
         Q = Q.reshape(batch_size, q_len, self.num_heads, self.head_dim).permute(
             0, 2, 1, 3
-        )
+        )  # Shape: [batch_size, num_heads, seq_len, head_dim]
         K = K.reshape(batch_size, k_len, self.num_heads, self.head_dim).permute(
             0, 2, 1, 3
-        )
+        )  # Shape: [batch_size, num_heads, seq_len, head_dim]
         V = V.reshape(batch_size, v_len, self.num_heads, self.head_dim).permute(
             0, 2, 1, 3
-        )
+        )  # Shape: [batch_size, num_heads, seq_len, head_dim]
 
         # Step 3: Compute scaled dot-product attention.
         attn_output = self.scaled_dot_product_attention(
