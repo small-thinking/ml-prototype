@@ -52,8 +52,6 @@ trainer:
           0: 1
           1: 5
           5: 1
-          
-
 
 model:
   class_path: lm.model.Seq2SeqLM
