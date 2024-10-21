@@ -123,26 +123,28 @@ class CustomScaledDotProductAttention(nn.Module):
         """Forward pass for Scaled Dot Product Attention.
 
         Args:
-            q (torch.Tensor): The query tensor, in shape [n, seq_len, embed_dim].
-            k (torch.Tensor): The key tensor, in shape [n, seq_len, embed_dim].
-            v (torch.Tensor): The value tensor, in shape [n, seq_len, embed_dim].
+            q (torch.Tensor): The query tensor, in shape [batch_size, num_heads, seq_len, head_dim]
+            k (torch.Tensor): The key tensor, in shape [batch_size, num_heads, seq_len, head_dim]
+            v (torch.Tensor): The value tensor, in shape [batch_size, num_heads, seq_len, head_dim]
             dropout_ratio (float): Useless parameter for interface compatibility.
             attn_mask (torch.Tensor): The attention mask to apply to the input.
             is_causal (bool): Useless parameter for interface compatibility.
 
         Returns:
-            torch.Tensor: The context vector after attention, in shape [n, seq_len, embed_dim].
+            torch.Tensor: The context vector after attention, in shape [batch_size, seq_len, embed_dim, num_heads].
         """
-        dk = q.shape[-1]  # seq_len
+        dk = q.shape[-1]  # head_dim
         # Compute the dot product between query and key tensors.
-        attn = (q @ k.transpose(-2, -1)) / math.sqrt(dk)  # Shape: [n, seq_len, seq_len]
+        attn = (q @ k.transpose(-2, -1)) / math.sqrt(dk)  # Shape: [batch_size, num_heads, seq_len, seq_len]
+        assert attn.shape == (q.shape[0], q.shape[1], q.shape[2], k.shape[2])
         assert attn_mask is not None
         if attn_mask is not None:
             attn = attn + attn_mask
-        attn = F.softmax(attn, dim=-1)  # Shape: [n, seq_len, seq_len]
+        attn = F.softmax(attn, dim=-1)  # Shape: [batch_size, num_heads, seq_len, seq_len]
         attn = self.dropout(attn)
         # Compute the context vector by taking a weighted sum of the values.
-        output = attn @ v  # Shape: [n, seq_len, embed_dim]
+        output = attn @ v  # Shape: [batch_size, num_heads, seq_len, head_dim]
+        assert output.shape == (q.shape[0], q.shape[1], q.shape[2], v.shape[3])
         return output
 
 
@@ -238,14 +240,14 @@ class CustomAttention(nn.Module):
             attn_mask=attn_mask,
             dropout_ratio=self.dropout_ratio,
             is_causal=is_causal,
-        )
+        )  # Shape: [batch_size, num_heads, seq_len, head_dim]
 
         # Step 4 and 5: Reshape and project output.
         attn_output = (
-            attn_output.permute(0, 2, 1, 3)
+            attn_output.permute(0, 2, 1, 3)  # Shape after permute: [batch_size, seq_len, num_heads, head_dim]
             .contiguous()
             .view(batch_size, q_len, self.embed_dim)
-        )
+        )  # Shape: [batch_size, seq_len, embed_dim = num_heads * head_dim]
         output = self.out_proj(attn_output)
 
         return output, None
@@ -601,3 +603,5 @@ class WarmupCosineDecayScheduler(LRScheduler):
         else:
             lr_val = self.min_lr
         return [lr_val for _ in self.base_lrs]
+
+
