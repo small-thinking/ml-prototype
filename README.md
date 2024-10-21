@@ -8,5 +8,5 @@ The config file is in ml_prototype/config/transformer_lm.yaml.
 Run the training job with the following command:
 
 ```bash
-python ml_prototype/cli.py fit--config ml_prototype/config/transformer_lm.yaml
+python ml_prototype/cli.py fit --config ml_prototype/config/transformer_lm.yaml
 ```
