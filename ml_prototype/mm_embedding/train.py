@@ -9,6 +9,7 @@ from ml_prototype.mm_embedding.module import (
 from torchvision import transforms
 import torch.nn.functional as F
 from ml_prototype.mm_embedding.preprocess import load_images_as_batch
+import wandb
 
 
 # Step 1: Configuration
@@ -22,7 +23,7 @@ def get_config():
             "output_dim": 128,
         },
         "train": {
-            "batch_size": 32,
+            "batch_size": 128,
             "learning_rate": 1e-4,
             "num_epochs": 10,
             "device": "mps" if torch.backends.mps.is_available() else "cpu",
@@ -118,6 +119,9 @@ def nt_xent_loss(z_i, z_j, temperature=0.5):
 
     # Compute cross-entropy loss
     loss = F.cross_entropy(sim, labels)
+
+    # Normalize loss by batch size
+    loss = loss / (2 * N)
     return loss
 
 
@@ -178,10 +182,22 @@ def train_model(model, dataloader, config):
                 "Cosine Sim": f"{cosine_sim:.4f}",
                 "LR": f"{optimizer.param_groups[0]['lr']:.2e}"
             })
+            # Log metrics to W&B
+            wandb.log({
+                "epoch": epoch + 1,
+                "batch_loss": loss.item(),
+                "cosine_similarity": cosine_sim,
+                "learning_rate": optimizer.param_groups[0]['lr']
+            })
 
         # Print epoch summary
         avg_loss = epoch_loss / len(dataloader)
         print(f"Epoch {epoch+1}/{config['train']['num_epochs']} | Loss: {avg_loss:.4f}")
+        # Log epoch-level metrics to W&B
+        wandb.log({
+            "epoch": epoch + 1,
+            "avg_loss": avg_loss
+        })
 
         # # Optionally, save model checkpoints
         # checkpoint_path = f"model_epoch_{epoch+1}.pth"
@@ -225,6 +241,14 @@ def evaluate_model(model, dataloader, config):
 # Step 6: Main Function
 def main():
     config = get_config()
+    run_name = f"batch-{config['train']['batch_size']}"
+    # Initialize W&B
+    wandb.init(
+        project="multimodal-embedding",  # Replace with your project name
+        config=config,                    # Log all hyperparameters
+        name=run_name,                    # Set run name
+        reinit=True                       # Allows multiple runs in a single script
+    )
     dataloader = prepare_data(config)
     model = initialize_model(config)
     train_model(model, dataloader, config)
