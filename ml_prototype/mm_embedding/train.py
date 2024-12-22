@@ -23,7 +23,7 @@ def get_config():
             "output_dim": 128,
         },
         "train": {
-            "batch_size": 128,
+            "batch_size": 512,
             "learning_rate": 1e-4,
             "num_epochs": 10,
             "device": "mps" if torch.backends.mps.is_available() else "cpu",
