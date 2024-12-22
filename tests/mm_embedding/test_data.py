@@ -3,9 +3,10 @@ import os
 from ml_prototype.mm_embedding.data import SequentialAugmenter, create_dataloader
 from augly.text import augmenters as text_aug
 from torchvision.transforms import Compose, RandomHorizontalFlip, RandomVerticalFlip
+from ml_prototype.mm_embedding.data import InMemoryDataset
 
 
-if __name__ == "__main__":
+def load_data():
     # Define mock directories for text and image data
     text_folder = os.path.expanduser("~/Downloads/multimodal/abo-listings")
     image_folder = os.path.expanduser("~/Downloads/multimodal/images")
@@ -24,12 +25,15 @@ if __name__ == "__main__":
         RandomVerticalFlip()
     ])
 
-    dataloader = create_dataloader(
+    dataset = InMemoryDataset(
         text_folder=text_folder,
         image_folder=image_folder,
         text_augment=None,
-        # text_augment=text_augment,
         image_augment=image_augment,
+    )
+
+    dataloader = create_dataloader(
+        dataset=dataset,
         batch_size=2,
         shuffle=True
     )
@@ -38,3 +42,7 @@ if __name__ == "__main__":
         print(batch)
         if idx > 10:
             break
+
+
+if __name__ == "__main__":
+    load_data()

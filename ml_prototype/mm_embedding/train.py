@@ -2,11 +2,12 @@ import os
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from ml_prototype.mm_embedding.data import create_dataloader
+from ml_prototype.mm_embedding.data import create_dataloader, InMemoryDataset
 from ml_prototype.mm_embedding.module import (
     ImageEncoder, TextEncoder, FusionLayer, MultimodalEmbeddingModel
 )
 from torchvision import transforms
+import torch.nn.functional as F
 from ml_prototype.mm_embedding.preprocess import load_images_as_batch
 
 
@@ -23,31 +24,45 @@ def get_config():
         "train": {
             "batch_size": 32,
             "learning_rate": 1e-4,
-            "num_epochs": 1,
+            "num_epochs": 10,
             "device": "mps" if torch.backends.mps.is_available() else "cpu",
             "image_transforms": transforms.Compose([
-                transforms.Resize((224, 224)),  # Resize the image to the specified dimensions
-                transforms.Lambda(lambda img: img.convert("RGB")),  # Convert grayscale images to RGB
-                transforms.ToTensor(),      # Convert the image to a PyTorch tensor
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize for pre-trained models
+                transforms.Resize((224, 224)),  # Resize to match model input
+                transforms.Lambda(lambda img: img.convert("RGB")),  # Ensure RGB
+                transforms.ToTensor(),          # Convert to tensor
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize
             ]),
-        },
-        "augmentations": {
-            "resize": (224, 224),
-            "horizontal_flip": True,
+            "image_augments": transforms.Compose([
+                transforms.Resize((224, 224)),  # Resize to match model input
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
+                transforms.RandomRotation(15),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ]),
         },
     }
 
 
 # Step 2: Data Preparation
 def prepare_data(config):
-    dataloader = create_dataloader(
+    """
+    Prepares the dataloader for training.
+
+    Args:
+        config (dict): Configuration dictionary.
+
+    Returns:
+        DataLoader: PyTorch DataLoader with InMemoryDataset.
+    """
+    dataset = InMemoryDataset(
         text_folder=os.path.expanduser(config["text_folder"]),
         image_folder=os.path.expanduser(config["image_folder"]),
-        text_augment=None,  # Optional text augmentations
-        image_augment=config["train"]["image_transforms"],
+    )
+    dataloader = create_dataloader(
+        dataset=dataset,
         batch_size=config["train"]["batch_size"],
-        shuffle=True,
+        shuffle=True
     )
     return dataloader
 
@@ -73,12 +88,55 @@ def initialize_model(config):
     return multimodal_model
 
 
+def nt_xent_loss(z_i, z_j, temperature=0.5):
+    """
+    Computes the NT-Xent loss between two sets of embeddings.
+
+    Args:
+        z_i (torch.Tensor): Embeddings from original images. Shape: (N, D)
+        z_j (torch.Tensor): Embeddings from augmented images. Shape: (N, D)
+        temperature (float): Scaling factor.
+
+    Returns:
+        torch.Tensor: Scalar loss value.
+    """
+    N = z_i.size(0)
+    z = torch.cat([z_i, z_j], dim=0)  # Shape: (2N, D)
+
+    # Compute cosine similarity matrix
+    sim = F.cosine_similarity(z.unsqueeze(1), z.unsqueeze(0), dim=2)  # Shape: (2N, 2N)
+
+    # Scale similarities by temperature
+    sim = sim / temperature
+
+    # Create labels for positive pairs
+    labels = torch.cat([torch.arange(N, 2*N), torch.arange(N)], dim=0).to(z.device)
+
+    # Mask to exclude self-similarity
+    mask = torch.eye(2 * N, dtype=torch.bool).to(z.device)
+    sim = sim.masked_fill(mask, -9e15)
+
+    # Compute cross-entropy loss
+    loss = F.cross_entropy(sim, labels)
+    return loss
+
+
 # Step 4: Training Loop
 def train_model(model, dataloader, config):
+    """
+    Trains the multimodal embedding model with self-supervised learning.
+
+    Args:
+        model (nn.Module): The multimodal embedding model.
+        dataloader (DataLoader): DataLoader with InMemoryDataset.
+        config (dict): Configuration dictionary.
+    """
     device = config["train"]["device"]
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config["train"]["learning_rate"])
-    criterion = nn.MSELoss()
+
+    # Define the augmentation transform
+    augmentation_transform = config["train"]["image_augments"]
 
     for epoch in range(config["train"]["num_epochs"]):
         model.train()
@@ -86,31 +144,49 @@ def train_model(model, dataloader, config):
         progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{config['train']['num_epochs']}", leave=False)
 
         for batch_idx, batch in enumerate(progress_bar):
-            images = batch["image"]
-            images_tensor = load_images_as_batch(images, config["train"]["image_transforms"]).to(device, dtype=torch.float32)
-            texts = batch["item_name"]
+            texts = batch['text']  # List of strings
+            image_paths = batch['image_path']  # List of image file paths (strings)
 
-            # Forward pass
-            embeddings = model(images_tensor, texts)
+            # Load original images
+            original_images = load_images_as_batch(image_paths, config["train"]["image_transforms"]).to(device)
 
-            # Dummy target for demonstration; replace with your actual target
-            target = torch.randn_like(embeddings).to(device)
+            # Load augmented images
+            augmented_images = load_images_as_batch(image_paths, augmentation_transform).to(device)
 
-            loss = criterion(embeddings, target)
+            # Forward pass on original images
+            embeddings_original = model(original_images, texts)      # Shape: (N, D)
+
+            # Forward pass on augmented images
+            embeddings_augmented = model(augmented_images, texts)    # Shape: (N, D)
+
+            # Compute NT-Xent loss
+            loss = nt_xent_loss(embeddings_original, embeddings_augmented, temperature=0.5)
+
+            # Backpropagation
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             epoch_loss += loss.item()
 
-            # Update progress bar with loss and learning rate
+            # Compute cosine similarity for monitoring
+            cosine_sim = F.cosine_similarity(embeddings_original, embeddings_augmented).mean().item()
+
+            # Update progress bar with loss and similarity
             progress_bar.set_postfix({
-                "Batch Loss": f"{loss.item():.4f}",
+                "Loss": f"{loss.item():.4f}",
+                "Cosine Sim": f"{cosine_sim:.4f}",
                 "LR": f"{optimizer.param_groups[0]['lr']:.2e}"
             })
 
         # Print epoch summary
-        print(f"Epoch {epoch+1}/{config['train']['num_epochs']} | Loss: {epoch_loss/len(dataloader):.4f}")
+        avg_loss = epoch_loss / len(dataloader)
+        print(f"Epoch {epoch+1}/{config['train']['num_epochs']} | Loss: {avg_loss:.4f}")
+
+        # # Optionally, save model checkpoints
+        # checkpoint_path = f"model_epoch_{epoch+1}.pth"
+        # torch.save(model.state_dict(), checkpoint_path)
+        # print(f"Saved model checkpoint at {checkpoint_path}")
 
 
 # Step 5: Evaluation (Optional)

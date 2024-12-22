@@ -2,8 +2,6 @@
 from torch.utils.data import Dataset
 from .preprocess import get_text_index, get_image_index, merge_text_image
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose
-from PIL import Image
 
 
 class SequentialAugmenter:
@@ -18,49 +16,40 @@ class SequentialAugmenter:
 
 class InMemoryDataset(Dataset):
     """Load the text and image data into memory and provide the dataset interface."""
-    """Load the text and image data into memory with optional augmentations."""
-    def __init__(
-        self,
-        text_folder: str,
-        image_folder: str,
-        text_augment: SequentialAugmenter | None = None,
-        image_augment: Compose | None = None,
-    ):
+    def __init__(self, text_folder: str, image_folder: str):
         self.text_dict = get_text_index(text_folder)
         self.image_dict = get_image_index(image_folder)
-        self.data_dict = merge_text_image(self.text_dict, self.image_dict)
+        self.data_dict: dict = merge_text_image(self.text_dict, self.image_dict)
         self.data = list(self.data_dict.values())
-        self.text_augment = text_augment
-        self.image_augment = image_augment
 
-    def __len__(self) -> int:
+    def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx: int) -> dict[str, any]:
-        item_name, image_file = self.data[idx]
-        # Apply text augmentation if provided
-        if self.text_augment:
-            item_name = self.text_augment.augment(item_name)
-        image = Image.open(image_file)
-        # Apply image augmentation if provided
-        if self.image_augment:
-            image = self.image_augment(image)
-
-        return {"item_name": item_name, "image": image_file}
+    def __getitem__(self, idx):
+        text, image_path = self.data[idx]
+        return {
+            'text': text,
+            'image_path': image_path
+        }
 
 
-def create_dataloader(
-    text_folder: str,
-    image_folder: str,
-    text_augment: SequentialAugmenter | None = None,
-    image_augment: Compose | None = None,
-    batch_size: int = 32,
-    shuffle: bool = True,
-) -> DataLoader:
-    dataset = InMemoryDataset(
-        text_folder=text_folder,
-        image_folder=image_folder,
-        text_augment=text_augment,
-        image_augment=image_augment,
+def create_dataloader(dataset, batch_size=32, shuffle=True, num_workers=4):
+    """
+    Creates a DataLoader from the given dataset.
+
+    Args:
+        dataset (Dataset): PyTorch Dataset object.
+        batch_size (int, optional): Number of samples per batch.
+        shuffle (bool, optional): Whether to shuffle the data.
+        num_workers (int, optional): Number of subprocesses for data loading.
+
+    Returns:
+        DataLoader: PyTorch DataLoader.
+    """
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=True
     )
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)

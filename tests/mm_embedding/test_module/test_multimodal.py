@@ -9,6 +9,7 @@ from ml_prototype.mm_embedding.preprocess import load_images_as_batch
 from torchvision.transforms import Compose, RandomHorizontalFlip, RandomVerticalFlip
 from torchvision import transforms
 from torchviz import make_dot
+from ml_prototype.mm_embedding.data import InMemoryDataset
 
 
 def test_multimodal_model():
@@ -32,12 +33,17 @@ def test_multimodal_model():
         RandomVerticalFlip()
     ])
 
-    # Create dataloader
-    dataloader = create_dataloader(
+    # Create dataset
+    dataset = InMemoryDataset(
         text_folder=text_folder,
         image_folder=image_folder,
-        text_augment=None,  # You can replace with text augmentations if needed
+        text_augment=None,
         image_augment=image_augment,
+    )
+
+    # Create dataloader
+    dataloader = create_dataloader(
+        dataset=dataset,
         batch_size=4,
         shuffle=True
     )

@@ -90,27 +90,27 @@ def merge_text_image(text_dict: dict[str, object], image_dict: dict[str, object]
     return merged_dict
 
 
-def load_images_as_batch(file_paths: list, image_transforms: list) -> torch.Tensor:
+def load_images_as_batch(image_paths, transform=None):
     """
-    Load a list of images from file paths, resize them, and return a batch of tensors.
+    Loads images from file paths, applies transformations, and stacks them into a batch tensor.
 
     Args:
-        file_paths (list): List of paths to image files.
-        image_transforms (list): List of image transformations to apply.
+        image_paths (list of str): List of image file paths.
+        transform (callable, optional): Transformations to apply to each image.
 
     Returns:
-        torch.Tensor: Batch of image tensors with shape [B, C, H, W].
+        torch.Tensor: Batched tensor of images.
     """
-    batch = []
-    for file_path in file_paths:
+    images = []
+    for file_path in image_paths:
         try:
-            # Open the image file
             image = Image.open(file_path).convert("RGB")  # Ensure the image is in RGB mode
-            # Apply the transformations
-            tensor = image_transforms(image)
-            batch.append(tensor)
+            if transform:
+                image = transform(image)
+            images.append(image)
         except Exception as e:
             raise RuntimeError(f"Error loading image at {file_path}: {e}")
-    # Stack tensors into a batch of shape [B, C, H, W]
-    batch_tensor = torch.stack(batch)
-    return batch_tensor
+    
+    # Stack into a single tensor
+    batch = torch.stack(images, dim=0)
+    return batch
