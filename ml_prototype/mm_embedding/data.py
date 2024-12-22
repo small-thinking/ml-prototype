@@ -1,12 +1,9 @@
 # This file includes the data processing of the multi-modality item embedding learning.
 from torch.utils.data import Dataset
-from preprocess import get_text_index, get_image_index, merge_text_image
-import lightning.pytorch as pl
+from .preprocess import get_text_index, get_image_index, merge_text_image
 from torch.utils.data import DataLoader
-import os
-from typing import Callable
-from torchvision.transforms import Compose, RandomHorizontalFlip, RandomVerticalFlip
-from augly.text import augmenters as text_aug
+from torchvision.transforms import Compose
+from PIL import Image
 
 
 class SequentialAugmenter:
@@ -41,78 +38,29 @@ class InMemoryDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict[str, any]:
         item_name, image_file = self.data[idx]
-
         # Apply text augmentation if provided
-        if self.text_augment_fn:
+        if self.text_augment:
             item_name = self.text_augment.augment(item_name)
-
+        image = Image.open(image_file)
         # Apply image augmentation if provided
-        if self.image_augment_fn:
-            image_file = self.image_augment(image_file)
+        if self.image_augment:
+            image = self.image_augment(image)
 
         return {"item_name": item_name, "image": image_file}
 
 
-class InMemoryDataModule(pl.LightningDataModule):
-    """DataModule for the multi-modality item embedding learning."""
-    def __init__(
-        self, text_folder: str, text_augment: SequentialAugmenter,
-        image_folder: str, image_augment: Compose, batch_size: int = 32
-    ):
-        super().__init__()
-        self.text_folder = text_folder
-        self.text_augment = text_augment
-        self.image_folder = image_folder
-        self.image_augment = image_augment
-        self.batch_size = batch_size
-
-    def setup(self, stage: str | None = None):
-        self.dataset = InMemoryDataset(self.text_folder, self.image_folder)
-
-    def train_dataloader(self):
-        return DataLoader(self.dataset, batch_size=self.batch_size, shuffle=True)
-
-    def val_dataloader(self):
-        return DataLoader(self.dataset, batch_size=self.batch_size, shuffle=False)
-
-
-if __name__ == "__main__":
-    # Define mock directories for text and image data
-    text_folder = os.path.expanduser("~/Downloads/multimodal/abo-listings")
-    image_folder = os.path.expanduser("~/Downloads/multimodal/images")
-
-    # Implement the augmentations
-    text_augmenters = [
-        text_aug.TypoAugmenter(
-            min_char=1, aug_char_min=1, aug_char_max=3, aug_char_p=0.1, aug_word_min=100,
-            aug_word_max=1000, aug_word_p=0.1, typo_type="charmix",
-            misspelling_dict_path=None, max_typo_length=1, priority_words=None,
-        ),
-    ]
-    text_augment = SequentialAugmenter(augmenters=text_augmenters)
-    image_augment = Compose([
-        RandomHorizontalFlip(),
-        RandomVerticalFlip()
-    ])
-
-    # Create an instance of the DataModule
-    data_module = InMemoryDataModule(
-        text_folder=text_folder, image_folder=image_folder, batch_size=4,
-        text_augment=text_augment, image_augment=image_augment
+def create_dataloader(
+    text_folder: str,
+    image_folder: str,
+    text_augment: SequentialAugmenter | None = None,
+    image_augment: Compose | None = None,
+    batch_size: int = 32,
+    shuffle: bool = True,
+) -> DataLoader:
+    dataset = InMemoryDataset(
+        text_folder=text_folder,
+        image_folder=image_folder,
+        text_augment=text_augment,
+        image_augment=image_augment,
     )
-
-    # Setup the DataModule (loads the data into memory)
-    data_module.setup()
-
-    # Get the DataLoader
-    train_loader = data_module.train_dataloader()
-    val_loader = data_module.val_dataloader()
-
-    # Iterate through the DataLoader to see the output
-    print("Training DataLoader:")
-    for batch in train_loader:
-        print(batch)
-
-    print("\nValidation DataLoader:")
-    for batch in val_loader:
-        print(batch)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)

@@ -2,10 +2,18 @@
 import json
 import os
 from tqdm import tqdm
+from PIL import Image
+import torch
 
 
 def get_text_index(text_file_folder: str, show_summary: bool = False) -> dict[str, object]:
-    """Load the text json files from the folder and return the dictionary of the text content."""
+    """Load the text json files from the folder and return the dictionary of the text content.
+    Args:
+        text_file_folder: The folder containing the text json files.
+        show_summary: Whether to print the summary of the text files.
+    Returns:
+        The dictionary of the text content. Key: item_id, Value: {"item_name": str, "image_ids": List[str]}
+    """
     text_dict = {}
     text_file_folder = os.path.expanduser(text_file_folder)
     json_files = [file for file in os.listdir(text_file_folder) if file.endswith(".json")]
@@ -27,7 +35,13 @@ def get_text_index(text_file_folder: str, show_summary: bool = False) -> dict[st
 
 
 def get_image_index(image_folder: str, show_summary: bool = False) -> dict[str, object]:
-    """Load the image files from the folder and return the dictionary of the image content."""
+    """Load the image files from the folder and return the dictionary of the image content.
+    Args:
+        image_folder: The folder containing the image files.
+        show_summary: Whether to print the summary of the image files.
+    Returns:
+        The dictionary of the image content. Key: image_id, Value: image_file
+    """
     # Load image index from <image_folder>/images.csv, the columns are image_id,height,width,path
     image_folder = os.path.expanduser(image_folder)
     filename_id_mapping = {}
@@ -76,15 +90,27 @@ def merge_text_image(text_dict: dict[str, object], image_dict: dict[str, object]
     return merged_dict
 
 
-if __name__ == "__main__":
-    text_folder = "~/Downloads/multimodal/abo-listings"
-    text_dict = get_text_index(text_folder, True)
+def load_images_as_batch(file_paths: list, image_transforms: list) -> torch.Tensor:
+    """
+    Load a list of images from file paths, resize them, and return a batch of tensors.
 
-    image_folder = "~/Downloads/multimodal/images"
-    image_dict = get_image_index(image_folder, True)
+    Args:
+        file_paths (list): List of paths to image files.
+        image_transforms (list): List of image transformations to apply.
 
-    merged_dict = merge_text_image(text_dict, image_dict)
-    print(f"Merged {len(merged_dict)} items with text and image information.")
-    print("Example item:")
-    # Peep into the merged dictionary
-
+    Returns:
+        torch.Tensor: Batch of image tensors with shape [B, C, H, W].
+    """
+    batch = []
+    for file_path in file_paths:
+        try:
+            # Open the image file
+            image = Image.open(file_path).convert("RGB")  # Ensure the image is in RGB mode
+            # Apply the transformations
+            tensor = image_transforms(image)
+            batch.append(tensor)
+        except Exception as e:
+            raise RuntimeError(f"Error loading image at {file_path}: {e}")
+    # Stack tensors into a batch of shape [B, C, H, W]
+    batch_tensor = torch.stack(batch)
+    return batch_tensor
