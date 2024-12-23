@@ -110,7 +110,6 @@ def load_images_as_batch(image_paths, transform=None):
             images.append(image)
         except Exception as e:
             raise RuntimeError(f"Error loading image at {file_path}: {e}")
-    
     # Stack into a single tensor
     batch = torch.stack(images, dim=0)
     return batch

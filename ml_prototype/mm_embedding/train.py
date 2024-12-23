@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from ml_prototype.mm_embedding.data import create_dataloader, InMemoryDataset
+from ml_prototype.mm_embedding.data import create_dataloaders, InMemoryDataset
 from ml_prototype.mm_embedding.module import (
     ImageEncoder, TextEncoder, FusionLayer, MultimodalEmbeddingModel
 )
@@ -12,20 +12,81 @@ from ml_prototype.mm_embedding.preprocess import load_images_as_batch
 import wandb
 
 
+class NTXentLoss(nn.Module):
+    """
+    Normalized Temperature-scaled Cross Entropy Loss (NT-Xent Loss).
+
+    This loss is used in contrastive learning frameworks to maximize similarity
+    between positive pairs and minimize similarity between negative pairs.
+    """
+    def __init__(self, temperature: float = 0.5, device: str = 'cpu'):
+        """
+        Initializes the NTXentLoss module.
+
+        Args:
+            temperature (float): The temperature scaling factor.
+            device (str): The device to perform computations on ('cpu' or 'cuda').
+        """
+        super(NTXentLoss, self).__init__()
+        self.temperature = temperature
+        self.device = device
+        self.cosine_similarity = nn.CosineSimilarity(dim=-1)
+
+    def forward(self, z_i: torch.Tensor, z_j: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the NT-Xent loss between two sets of embeddings.
+
+        Args:
+            z_i (torch.Tensor): Embeddings from original samples. Shape: (n, d)
+            z_j (torch.Tensor): Embeddings from augmented samples. Shape: (n, d)
+
+        Returns:
+            torch.Tensor: The computed NT-Xent loss.
+        """
+        # Normalize the embeddings
+        z_i = F.normalize(z_i, p=2, dim=1)
+        z_j = F.normalize(z_j, p=2, dim=1)
+
+        # Concatenate the embeddings
+        z = torch.cat([z_i, z_j], dim=0)  # Shape: (2n, d)
+
+        # Compute similarity matrix
+        sim_matrix = torch.matmul(z, z.T)  # Shape: (2n, 2n)
+
+        # Apply temperature scaling
+        sim_matrix = sim_matrix / self.temperature
+
+        # Create labels
+        n = z_i.shape[0]
+        labels = torch.arange(n).to(self.device)
+        labels = torch.cat([labels + n, labels]).to(self.device)  # Positive pairs are shifted by n
+
+        # Mask to remove similarity of samples to themselves
+        mask = torch.eye(2 * n, dtype=torch.bool).to(self.device)
+        sim_matrix = sim_matrix.masked_fill(mask, -9e15)
+
+        # Compute cross-entropy loss
+        loss = F.cross_entropy(sim_matrix, labels)
+        return loss
+
+
 # Step 1: Configuration
 def get_config():
     return {
         "text_folder": "~/Downloads/multimodal/abo-listings",
         "image_folder": "~/Downloads/multimodal/images",
+        "wandb_log": True,
         "model": {
             "image_encoder": "google/vit-base-patch16-224-in21k",
             "text_encoder": "bert-base-multilingual-cased",
             "output_dim": 128,
         },
         "train": {
-            "batch_size": 512,
+            "batch_size": 32,
             "learning_rate": 1e-4,
             "num_epochs": 10,
+            "val_split": 0.2,
+            "seed": 42,
             "device": "mps" if torch.backends.mps.is_available() else "cpu",
             "image_transforms": transforms.Compose([
                 transforms.Resize((224, 224)),  # Resize to match model input
@@ -60,12 +121,14 @@ def prepare_data(config):
         text_folder=os.path.expanduser(config["text_folder"]),
         image_folder=os.path.expanduser(config["image_folder"]),
     )
-    dataloader = create_dataloader(
+    dataloaders = create_dataloaders(
         dataset=dataset,
         batch_size=config["train"]["batch_size"],
-        shuffle=True
+        shuffle=True,
+        val_split=config["train"]["val_split"],
+        seed=config["train"]["seed"],
     )
-    return dataloader
+    return dataloaders
 
 
 # Step 3: Model Initialization
@@ -89,42 +152,6 @@ def initialize_model(config):
     return multimodal_model
 
 
-def nt_xent_loss(z_i, z_j, temperature=0.5):
-    """
-    Computes the NT-Xent loss between two sets of embeddings.
-
-    Args:
-        z_i (torch.Tensor): Embeddings from original images. Shape: (N, D)
-        z_j (torch.Tensor): Embeddings from augmented images. Shape: (N, D)
-        temperature (float): Scaling factor.
-
-    Returns:
-        torch.Tensor: Scalar loss value.
-    """
-    N = z_i.size(0)
-    z = torch.cat([z_i, z_j], dim=0)  # Shape: (2N, D)
-
-    # Compute cosine similarity matrix
-    sim = F.cosine_similarity(z.unsqueeze(1), z.unsqueeze(0), dim=2)  # Shape: (2N, 2N)
-
-    # Scale similarities by temperature
-    sim = sim / temperature
-
-    # Create labels for positive pairs
-    labels = torch.cat([torch.arange(N, 2*N), torch.arange(N)], dim=0).to(z.device)
-
-    # Mask to exclude self-similarity
-    mask = torch.eye(2 * N, dtype=torch.bool).to(z.device)
-    sim = sim.masked_fill(mask, -9e15)
-
-    # Compute cross-entropy loss
-    loss = F.cross_entropy(sim, labels)
-
-    # Normalize loss by batch size
-    loss = loss / (2 * N)
-    return loss
-
-
 # Step 4: Training Loop
 def train_model(model, dataloader, config):
     """
@@ -138,6 +165,7 @@ def train_model(model, dataloader, config):
     device = config["train"]["device"]
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config["train"]["learning_rate"])
+    nt_xent_loss = NTXentLoss(temperature=0.5, device=device)
 
     # Define the augmentation transform
     augmentation_transform = config["train"]["image_augments"]
@@ -164,7 +192,7 @@ def train_model(model, dataloader, config):
             embeddings_augmented = model(augmented_images, texts)    # Shape: (N, D)
 
             # Compute NT-Xent loss
-            loss = nt_xent_loss(embeddings_original, embeddings_augmented, temperature=0.5)
+            loss = nt_xent_loss(embeddings_original, embeddings_augmented)
 
             # Backpropagation
             optimizer.zero_grad()
@@ -182,22 +210,24 @@ def train_model(model, dataloader, config):
                 "Cosine Sim": f"{cosine_sim:.4f}",
                 "LR": f"{optimizer.param_groups[0]['lr']:.2e}"
             })
-            # Log metrics to W&B
-            wandb.log({
-                "epoch": epoch + 1,
-                "batch_loss": loss.item(),
-                "cosine_similarity": cosine_sim,
-                "learning_rate": optimizer.param_groups[0]['lr']
-            })
+            if config["wandb_log"]:
+                # Log metrics to W&B
+                wandb.log({
+                    "epoch": epoch + 1,
+                    "batch_loss": loss.item(),
+                    "cosine_similarity": cosine_sim,
+                    "learning_rate": optimizer.param_groups[0]['lr']
+                })
 
         # Print epoch summary
         avg_loss = epoch_loss / len(dataloader)
         print(f"Epoch {epoch+1}/{config['train']['num_epochs']} | Loss: {avg_loss:.4f}")
-        # Log epoch-level metrics to W&B
-        wandb.log({
-            "epoch": epoch + 1,
-            "avg_loss": avg_loss
-        })
+        if config["wandb_log"]:
+            # Log epoch-level metrics to W&B
+            wandb.log({
+                "epoch": epoch + 1,
+                "avg_loss": avg_loss
+            })
 
         # # Optionally, save model checkpoints
         # checkpoint_path = f"model_epoch_{epoch+1}.pth"
@@ -236,24 +266,37 @@ def evaluate_model(model, dataloader, config):
 
     # Print evaluation summary
     print(f"Evaluation Loss: {total_loss/len(dataloader):.4f}")
+    if config["wandb_log"]:
+        # Log evaluation loss to W&B
+        wandb.log({
+            "evaluation_loss": total_loss / len(dataloader)
+        })
 
 
 # Step 6: Main Function
 def main():
     config = get_config()
     run_name = f"batch-{config['train']['batch_size']}"
-    # Initialize W&B
-    wandb.init(
-        project="multimodal-embedding",  # Replace with your project name
-        config=config,                    # Log all hyperparameters
-        name=run_name,                    # Set run name
-        reinit=True                       # Allows multiple runs in a single script
-    )
-    dataloader = prepare_data(config)
+    if config["wandb_log"]:
+        # Initialize W&B
+        wandb.init(
+            project="multimodal-embedding",  # Replace with your project name
+            config=config,                    # Log all hyperparameters
+            name=run_name,                    # Set run name
+            reinit=True                       # Allows multiple runs in a single script
+        )
+
+    dataloaders = prepare_data(config)
     model = initialize_model(config)
-    train_model(model, dataloader, config)
+    train_model(model, dataloaders["train"], config)
     # Uncomment for evaluation
-    # evaluate_model(model, dataloader, config)
+    # evaluate_model(model, dataloaders["val"], config)
+    if config["wandb_log"]:
+        # Save the final model
+        torch.save(model.state_dict(), "multimodal_embedding.pth")
+        wandb.save("multimodal_embedding.pth")
+        # Finish W&B run
+        wandb.finish()
 
 
 if __name__ == "__main__":
