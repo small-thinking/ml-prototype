@@ -72,6 +72,13 @@ class NTXentLoss(nn.Module):
 
 # Step 1: Configuration
 def get_config():
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        print("Warning: Running on CPU. Consider using a GPU for faster training.")
     return {
         "text_folder": "~/Downloads/multimodal/abo-listings",
         "image_folder": "~/Downloads/multimodal/images",
@@ -84,10 +91,10 @@ def get_config():
         "train": {
             "batch_size": 32,
             "learning_rate": 1e-4,
-            "num_epochs": 10,
+            "num_epochs": 2,
             "val_split": 0.2,
             "seed": 42,
-            "device": "mps" if torch.backends.mps.is_available() else "cpu",
+            "device": device,
             "image_transforms": transforms.Compose([
                 transforms.Resize((224, 224)),  # Resize to match model input
                 transforms.Lambda(lambda img: img.convert("RGB")),  # Ensure RGB
@@ -229,10 +236,10 @@ def train_model(model, dataloader, config):
                 "avg_loss": avg_loss
             })
 
-        # # Optionally, save model checkpoints
-        # checkpoint_path = f"model_epoch_{epoch+1}.pth"
-        # torch.save(model.state_dict(), checkpoint_path)
-        # print(f"Saved model checkpoint at {checkpoint_path}")
+        # Optionally, save model checkpoints
+        checkpoint_path = f"model_epoch_{epoch+1}.ckpt"
+        torch.save(model.state_dict(), checkpoint_path)
+        print(f"Saved model checkpoint at {checkpoint_path}")
 
 
 # Step 5: Evaluation (Optional)
