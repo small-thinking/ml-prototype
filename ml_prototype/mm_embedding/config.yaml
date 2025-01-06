@@ -1,0 +1,146 @@
+my_config:
+  device: "mps"
+  data_module:
+    folder_path: "~/Downloads/data"
+    batch_size: 512
+    val_ratio: 0.1
+    columns:
+      # - name: "name"
+      #   type: "str"
+      # - name: "definition"
+      #   type: "str"
+      # - name: "greeting"
+      #   type: "str"
+      # - name: "description"
+      #   type: "str"
+      # - name: "tagline"
+      #   type: "str"
+      - name: "age"
+        type: "int"
+        min_val: 0
+        max_val: 100000000
+      - name: "user rating"
+        type: "float"
+        min_val: 0.0
+        max_val: 5.0
+      - name: "number of conversations"
+        type: "int"
+        min_val: 0
+        max_val: 10000000
+      - name: "creativity"
+        type: "int"
+        min_val: 0
+        max_val: 1000
+      - name: "energy"
+        type: "int"
+        min_val: 1
+        max_val: 100000
+      - name: "speed"
+        type: "int"
+        min_val: 0
+        max_val: 1000000
+      - name: "strength"
+        type: "int"
+        min_val: 0
+        max_val: 100000
+      # - name: "voice id"
+      #   type: "int64"
+      - name: "sarcasm level"
+        type: "int64"
+      - name: "humor level"
+        type: "int64"
+      - name: "politeness level"
+        type: "int64"
+      - name: "emotional range"
+        type: "int64"
+      # - name: "speech style"
+      #   type: "int64"
+      - name: "moral level"
+        type: "int64"
+      - name: "occupation"
+        type: "int64"
+      - name: "personality"
+        type: "int64"
+      - name: "gender"
+        type: "int64"
+  
+  training_config:
+    epochs: 5
+    learning_rate: 0.0003
+    use_wandb: true
+    augment_config:
+      augment_numerical: true
+      noise_std: 1.0
+      augment_categorical: true
+      change_prob: 0.2
+      change_delta: 2
+
+  model_config:
+    transformer_layers: &layers 8
+    embedding_dim: &embedding_dim 32
+    ff_dim: 64
+    feature_transformation_configs:
+      - class_path: "ml_prototype.mm_embedding.module.IdentityTransformation"
+        name: "age"
+      - class_path: "ml_prototype.mm_embedding.module.IdentityTransformation"
+        name: "user rating"
+      - class_path: "ml_prototype.mm_embedding.module.IdentityTransformation"
+        name: "number of conversations"
+      - class_path: "ml_prototype.mm_embedding.module.IdentityTransformation"
+        name: "creativity"
+      - class_path: "ml_prototype.mm_embedding.module.IdentityTransformation"
+        name: "energy"
+      - class_path: "ml_prototype.mm_embedding.module.IdentityTransformation"
+        name: "speed"
+      - class_path: "ml_prototype.mm_embedding.module.IdentityTransformation"
+        name: "strength"
+      # - class_path: "ml_prototype.mm_embedding.module.IdentityTransformation"
+      #   name: "voice id"
+      - class_path: "ml_prototype.mm_embedding.module.EmbeddingTransformer"
+        name: "sarcasm level"
+        num_embeddings: 10
+        num_layers: *layers
+        embedding_dim: *embedding_dim
+      - class_path: "ml_prototype.mm_embedding.module.EmbeddingTransformer"
+        name: "humor level"
+        num_embeddings: 10
+        num_layers: *layers
+        embedding_dim: *embedding_dim
+      - class_path: "ml_prototype.mm_embedding.module.EmbeddingTransformer"
+        name: "politeness level"
+        num_embeddings: 10
+        num_layers: *layers
+        embedding_dim: *embedding_dim
+      - class_path: "ml_prototype.mm_embedding.module.EmbeddingTransformer"
+        name: "emotional range"
+        num_embeddings: 10
+        num_layers: *layers
+        embedding_dim: *embedding_dim
+      # - class_path: "ml_prototype.mm_embedding.module.OneHotTransformation"
+      #   name: "speech style"
+      #   num_classes: 1000
+      - class_path: "ml_prototype.mm_embedding.module.EmbeddingTransformer"
+        name: "moral level"
+        num_embeddings: 10
+        num_layers: *layers
+        embedding_dim: *embedding_dim
+      - class_path: "ml_prototype.mm_embedding.module.EmbeddingTransformer"
+        name: "occupation"
+        num_embeddings: 10
+        num_layers: *layers
+        embedding_dim: *embedding_dim
+      - class_path: "ml_prototype.mm_embedding.module.EmbeddingTransformer"
+        name: "personality"
+        num_embeddings: 10
+        num_layers: *layers
+        embedding_dim: *embedding_dim
+      - class_path: "ml_prototype.mm_embedding.module.EmbeddingTransformer"
+        name: "gender"
+        num_embeddings: 3
+        num_layers: *layers
+        embedding_dim: *embedding_dim
+      
+
+
+
+    
