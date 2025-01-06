@@ -8,7 +8,7 @@ packages = [{include = "ml_prototype"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-torch = "2.5.0"
+torch = "2.3.0"
 tqdm = "4.65.0"
 numpy = "^1.25.1"
 lightning = "2.4.0"
@@ -16,11 +16,15 @@ sentencepiece = "0.1.99"
 python-dotenv = "^1.0.0"
 colorama = "^0.4.6"
 wandb = "^0.18.5"
-torchtext = "^0.18.0"
 python-dateutil = "^2.9.0.post0"
 torchmetrics = "^1.5.0"
 transformers = "^4.45.2"
 jsonargparse = {extras = ["signatures"], version = "^4.33.2"}
+torchvision = "0.18.0"
+augly = "^1.0.0"
+python-magic = "^0.4.27"
+nlpaug = "^1.1.11"
+pyarrow = "^18.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "7.4.0"
