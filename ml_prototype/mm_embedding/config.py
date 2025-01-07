@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -79,13 +79,23 @@ class AugmentConfig:
 
 
 @dataclass
+class SchedulerConfig:
+    enabled: bool = False          # Whether to use the scheduler at all
+    scheduler_type: str = "StepLR"  # Currently only "StepLR" in this example
+    step_size_batches: int = 20   # How many batches before stepping
+    gamma: float = 0.99             # Multiply LR by this factor every step
+    min_lr: float = 1e-6           # An optional minimum learning rate
+
+
+@dataclass
 class TrainingConfig:
     """
     Represents the training configuration.
     """
-    epochs: int
-    learning_rate: float
-    augment_config: AugmentConfig
+    scheduler_config: SchedulerConfig
+    epochs: int = 1
+    learning_rate: float = 0.0003
+    augment_config: AugmentConfig = field(default_factory=AugmentConfig)
     use_wandb: bool = False
 
 
@@ -106,6 +116,6 @@ class ModelConfig:
 class MyConfig:
     device: str
     data_module: DataModuleConfig
-    training_config: TrainingConfig
     model_config: ModelConfig
+    training_config: TrainingConfig
     use_wandb: bool = False

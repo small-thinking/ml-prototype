@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from jsonargparse import ArgumentParser, ActionConfigFile
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from ml_prototype.mm_embedding.module import TabularEmbeddingModel
 from ml_prototype.mm_embedding.dataloader import create_dataloaders
 from ml_prototype.mm_embedding.contrastive import ContrastiveLoss
@@ -96,6 +97,16 @@ def train(
     ff_dim = config.model_config.ff_dim
     batch_size = config.data_module.batch_size
 
+    # LR scheduler
+    scheduler = None
+    if training_config.scheduler_config.enabled:
+        # We'll assume StepLR for this example
+        scheduler = StepLR(
+            optimizer,
+            step_size=training_config.scheduler_config.step_size_batches,  # e.g. 100
+            gamma=training_config.scheduler_config.gamma                   # e.g. 0.1
+        )
+
     if training_config.use_wandb:
         run_name = f"l_{num_layers}_emb_{emb_dim}_lr_{lr}_bs_{batch_size}"
         wandb.init(
@@ -141,6 +152,14 @@ def train(
                 loss.backward()
                 optimizer.step()
 
+                # Update LR if using scheduler
+                if scheduler is not None:
+                    scheduler.step()  # step after each batch
+                    # Optional: clamp to min_lr if desired
+                    for param_group in optimizer.param_groups:
+                        if param_group["lr"] < training_config.scheduler.min_lr:
+                            param_group["lr"] = training_config.scheduler.min_lr
+
                 total_loss += loss.item()
 
                 pbar.set_postfix({"loss": loss.item(), "similarity": diag_sim.mean().item()})
@@ -151,6 +170,7 @@ def train(
                         "batch_train_loss": loss.item(),
                         "batch_diag_similarity": diag_sim.item(),
                         "batch_off_diag_similarity": off_diag_sim.item(),
+                        "batch_lr": optimizer.param_groups[0]["lr"]
                     })
 
         # Compute epoch-level means

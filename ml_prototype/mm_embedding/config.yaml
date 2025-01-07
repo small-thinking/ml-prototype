@@ -74,6 +74,11 @@ my_config:
       augment_categorical: true
       change_prob: 0.2
       change_delta: 2
+    scheduler_config:
+      enabled: true
+      scheduler_type: "StepLR"
+      step_size_batches: 100
+      gamma: 0.99
 
   model_config:
     transformer_layers: &layers 8
