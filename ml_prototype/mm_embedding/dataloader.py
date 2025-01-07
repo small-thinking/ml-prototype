@@ -151,6 +151,7 @@ def collate_fn(batch: list[dict[str, Tensor]]) -> dict[str, Tensor]:
     batch_dict = {}
     for key in batch[0].keys():
         batch_dict[key] = torch.cat([sample[key] for sample in batch], dim=0)
+
     return batch_dict
 
 

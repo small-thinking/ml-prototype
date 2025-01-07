@@ -8,6 +8,7 @@ class Column:
     type: str
     min_val: Optional[float] = None
     max_val: Optional[float] = None
+    log_distribution: bool = False
 
 
 @dataclass

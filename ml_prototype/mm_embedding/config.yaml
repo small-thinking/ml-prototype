@@ -19,14 +19,17 @@ my_config:
         type: "int"
         min_val: 0
         max_val: 100000000
+        log_distribution: true
       - name: "user rating"
         type: "float"
         min_val: 0.0
         max_val: 5.0
+        log_distribution: true
       - name: "number of conversations"
         type: "int"
         min_val: 0
         max_val: 10000000
+        log_distribution: true
       - name: "creativity"
         type: "int"
         min_val: 0

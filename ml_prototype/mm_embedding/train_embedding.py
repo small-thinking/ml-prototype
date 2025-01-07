@@ -9,7 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from jsonargparse import ArgumentParser, ActionConfigFile
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import StepLR
 from ml_prototype.mm_embedding.module import TabularEmbeddingModel
 from ml_prototype.mm_embedding.dataloader import create_dataloaders
 from ml_prototype.mm_embedding.contrastive import ContrastiveLoss
@@ -18,6 +18,7 @@ import copy
 from typing import Any
 from tqdm import tqdm
 import wandb
+import numpy as np
 
 
 def data_augmentation(batch: dict[str, torch.Tensor], augment_config: dict[str, Any]) -> dict[str, torch.Tensor]:
@@ -107,6 +108,9 @@ def train(
             gamma=training_config.scheduler_config.gamma                   # e.g. 0.1
         )
 
+    # Extract columns that need distribution logging
+    log_distribution_columns = [col.name for col in config.data_module.columns if col.log_distribution]
+
     if training_config.use_wandb:
         run_name = f"l_{num_layers}_emb_{emb_dim}_lr_{lr}_bs_{batch_size}"
         wandb.init(
@@ -114,7 +118,11 @@ def train(
             config={
                 "epochs": epochs, "learning_rate": lr, "num_layers": num_layers,
                 "embedding_dim": emb_dim, "ff_dim": ff_dim,
-                "batch_size": batch_size
+                "batch_size": batch_size,
+                "scheduler": training_config.scheduler_config.scheduler_type if training_config.scheduler_config.enabled else "None",
+                "scheduler_step_size_batches": training_config.scheduler_config.step_size_batches if training_config.scheduler_config.enabled else "N/A",
+                "scheduler_gamma": training_config.scheduler_config.gamma if training_config.scheduler_config.enabled else "N/A",
+                "log_distribution_columns": log_distribution_columns
             },
             name=run_name
         )
@@ -165,6 +173,7 @@ def train(
                 pbar.set_postfix({"loss": loss.item(), "similarity": diag_sim.mean().item()})
                 pbar.update(1)
 
+                # Log metrics to wandb
                 if training_config.use_wandb:
                     wandb.log({
                         "batch_train_loss": loss.item(),
@@ -172,6 +181,15 @@ def train(
                         "batch_off_diag_similarity": off_diag_sim.item(),
                         "batch_lr": optimizer.param_groups[0]["lr"]
                     })
+                    # Log distributions for specified columns
+                    for col in log_distribution_columns:
+                        if col in batch:
+                            data = batch[col].squeeze().cpu().numpy()
+                            log_dict = {
+                                "test_lr": optimizer.param_groups[0]["lr"],
+                                "bbbb": wandb.Histogram(np.random.randn(1000))  # Larger dataset
+                            }
+                            wandb.log(log_dict)
 
         # Compute epoch-level means
         avg_loss = total_loss / len(dataloaders["train"])
