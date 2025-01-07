@@ -111,9 +111,9 @@ def train(
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
-        avg_similarity = 0.0
-        all_similarities = []
-        all_norms = []
+        train_diag_sims = []
+        train_off_diag_sims = []
+        train_cos_sims = []   # optional: storing per-batch (z_i,z_j) cos for debugging
         # Train the model in each epoch
         with tqdm(total=len(dataloaders["train"]), desc=f"Epoch {epoch+1}/{epochs}") as pbar:
             for batch in dataloaders["train"]:
@@ -125,17 +125,16 @@ def train(
                 z_j = model(augmented_batch)
 
                 # Compute contrastive loss
-                loss = contrastive_loss_fn(z_i, z_j)
+                loss, diag_sim, off_diag_sim = contrastive_loss_fn(z_i, z_j)
 
-                # Compute cosine similarity
-                similarity = cosine_similarity(z_i, z_j)
-                avg_similarity += similarity.mean().item()
-                all_similarities.extend(similarity.detach().cpu().numpy())
-
-                # Compute embedding norms
-                norm_i = torch.norm(z_i, dim=1).mean().item()
-                norm_j = torch.norm(z_j, dim=1).mean().item()
-                all_norms.append((norm_i + norm_j) / 2)
+                # For debugging: get "per-sample" cos similarity
+                cos_sims = cosine_similarity(z_i, z_j)  # shape: [batch_size]
+                avg_cos = cos_sims.mean().item()
+                # Keep track of sums for epoch-level metrics
+                total_loss += loss.item()
+                train_diag_sims.append(diag_sim.item())
+                train_off_diag_sims.append(off_diag_sim.item())
+                train_cos_sims.append(avg_cos)
 
                 # Backward pass and optimization
                 optimizer.zero_grad()
@@ -144,74 +143,79 @@ def train(
 
                 total_loss += loss.item()
 
-                pbar.set_postfix({"loss": loss.item(), "similarity": similarity.mean().item()})
+                pbar.set_postfix({"loss": loss.item(), "similarity": diag_sim.mean().item()})
                 pbar.update(1)
 
                 if training_config.use_wandb:
-                    wandb.log({"batch_loss": loss.item(), "batch_similarity": similarity.mean().item()})
+                    wandb.log({
+                        "batch_train_loss": loss.item(),
+                        "batch_diag_similarity": diag_sim.item(),
+                        "batch_off_diag_similarity": off_diag_sim.item(),
+                    })
 
+        # Compute epoch-level means
         avg_loss = total_loss / len(dataloaders["train"])
-        avg_similarity /= len(dataloaders["train"])
-        avg_norm = sum(all_norms) / len(all_norms)
-        print(f"Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}, Avg Similarity: {avg_similarity:.4f}, Avg Norm: {avg_norm:.4f}")
+        avg_diag = sum(train_diag_sims) / len(train_diag_sims)
+        avg_offdiag = sum(train_off_diag_sims) / len(train_off_diag_sims)
+        avg_cos_sims = sum(train_cos_sims) / len(train_cos_sims)
+
+        print(f"[Train] Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | "
+              f"DiagCos: {avg_diag:.4f} | OffDiagCos: {avg_offdiag:.4f} | Cos: {avg_cos_sims:.4f}")
 
         if training_config.use_wandb:
             wandb.log({
                 "epoch_train_loss": avg_loss,
-                "epoch_train_similarity": avg_similarity,
-                "epoch_train_norm": avg_norm,
-                "train_similarity_distribution": wandb.Histogram(all_similarities)
+                "epoch_train_diag_cos": avg_diag,
+                "epoch_train_offdiag_cos": avg_offdiag,
+                "epoch_train_cos": avg_cos_sims,
             })
 
         # Evaluate on validation set
         model.eval()
         val_loss = 0.0
-        val_similarity = 0.0
-        val_all_similarities = []
-        val_all_norms = []
+        val_diag_sims = []
+        val_off_diag_sims = []
+        val_cos_sims = []
+
         with torch.no_grad():
-            with tqdm(total=len(dataloaders["val"]), desc=f"Validation {epoch+1}/{epochs}") as pbar:
+            with tqdm(total=len(dataloaders["val"]), desc=f"Val {epoch+1}/{epochs}") as pbar:
                 for batch in dataloaders["val"]:
-                    batch = {key: value.to(device) for key, value in batch.items()}
+                    batch = {k: v.to(device) for k, v in batch.items()}
                     augmented_batch = data_augmentation(batch, augment_config)
 
-                    # Forward pass for original and augmented data
                     z_i = model(batch)
                     z_j = model(augmented_batch)
 
-                    # Compute contrastive loss
-                    loss = contrastive_loss_fn(z_i, z_j)
-
-                    # Compute cosine similarity
-                    similarity = cosine_similarity(z_i, z_j)
-                    val_similarity += similarity.mean().item()
-                    val_all_similarities.extend(similarity.cpu().numpy())
-
-                    # Compute embedding norms
-                    norm_i = torch.norm(z_i, dim=1).mean().item()
-                    norm_j = torch.norm(z_j, dim=1).mean().item()
-                    val_all_norms.append((norm_i + norm_j) / 2)
+                    loss, diag_sim, off_diag_sim = contrastive_loss_fn(z_i, z_j)
+                    cos_sims = cosine_similarity(z_i, z_j)
+                    avg_cos = cos_sims.mean().item()
 
                     val_loss += loss.item()
+                    val_diag_sims.append(diag_sim.item())
+                    val_off_diag_sims.append(off_diag_sim.item())
+                    val_cos_sims.append(avg_cos)
 
-                    pbar.set_postfix({"val_loss": loss.item(), "val_similarity": similarity.mean().item()})
+                    pbar.set_postfix({
+                        "val_loss": f"{loss.item():.4f}",
+                        "val_cos":  f"{avg_cos:.4f}"
+                    })
                     pbar.update(1)
 
+        # Compute epoch-level means for validation
         val_loss /= len(dataloaders["val"])
-        val_similarity /= len(dataloaders["val"])
-        val_avg_norm = sum(val_all_norms) / len(val_all_norms)
-        print(
-            f"Validation Loss: {val_loss:.4f}, "
-            "Validation Similarity: {val_similarity:.4f}, "
-            "Validation Norm: {val_avg_norm:.4f}"
-        )
+        val_diag = sum(val_diag_sims) / len(val_diag_sims)
+        val_offdiag = sum(val_off_diag_sims) / len(val_off_diag_sims)
+        val_cos_avg = sum(val_cos_sims) / len(val_cos_sims)
+
+        print(f"[Val]   Epoch {epoch+1}/{epochs} | Loss: {val_loss:.4f} | "
+              f"DiagCos: {val_diag:.4f} | OffDiagCos: {val_offdiag:.4f} | Cos: {val_cos_avg:.4f}")
 
         if training_config.use_wandb:
             wandb.log({
                 "epoch_val_loss": val_loss,
-                "epoch_val_similarity": val_similarity,
-                "epoch_val_norm": val_avg_norm,
-                "val_similarity_distribution": wandb.Histogram(val_all_similarities)
+                "epoch_val_diag_cos": val_diag,
+                "epoch_val_offdiag_cos": val_offdiag,
+                "epoch_val_cos": val_cos_avg
             })
 
     if training_config.use_wandb:
