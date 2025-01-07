@@ -157,8 +157,8 @@ def train(
                     scheduler.step()  # step after each batch
                     # Optional: clamp to min_lr if desired
                     for param_group in optimizer.param_groups:
-                        if param_group["lr"] < training_config.scheduler.min_lr:
-                            param_group["lr"] = training_config.scheduler.min_lr
+                        if param_group["lr"] < training_config.scheduler_config.min_lr:
+                            param_group["lr"] = training_config.scheduler_config.min_lr
 
                 total_loss += loss.item()
 
