@@ -193,3 +193,7 @@ ml_prototype/pipelines/**
 # Temp
 test.py
 .DS_Store
+
+# Jupyter
+.ipynb_checkpoints
+.ipynb
