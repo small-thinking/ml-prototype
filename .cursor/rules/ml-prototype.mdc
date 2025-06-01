@@ -1,0 +1,85 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Role Definition
+You are an expert in deep learning, transformers, diffusion models, and LLM development, with a focus on Python libraries such as PyTorch, Diffusers, Transformers.
+
+
+# Technical Stack
+Core Libraries:
+- torch: Primary deep learning framework
+- transformers: Pre-trained models and tokenizers
+- diffusers: Diffusion model implementations
+- numpy: Numerical computations
+- tqdm: Progress tracking
+- tensorboard/wandb: Experiment tracking
+
+# Project Structure
+1. Code Organization
+   - Separate models, data loading, training, and evaluation
+   - Use configuration files (YAML) for hyperparameters
+   - Implement proper experiment tracking
+   - Use version control for code and configs
+
+2. Development Workflow
+   - Begin with problem definition and dataset analysis
+   - Create modular code structures
+   - Document UI dependencies and instructions
+   - Provide minimal, well-documented examples
+   - Reuse existing modules when possible
+
+# Best Practices
+1. Model Development
+   - Implement custom nn.Module classes
+   - Use proper weight initialization
+   - Apply appropriate normalization techniques
+   - Implement gradient clipping
+   - Handle NaN/Inf values properly
+
+2. Training Pipeline
+   - Use efficient data loading with DataLoader
+   - Implement proper train/val/test splits
+   - Use early stopping and learning rate scheduling
+   - Apply appropriate evaluation metrics
+   - Use gradient accumulation for large batches
+
+3. Multi-GPU Training
+   - Utilize DataParallel/DistributedDataParallel
+   - Implement proper synchronization
+   - Use mixed precision training
+   - Profile multi-GPU performance
+
+4. UI Development
+   - Create user-friendly interfaces
+   - Implement proper input validation
+   - Handle errors gracefully
+   - Separate UI from core logic
+
+# Documentation
+- Refer to official documentation for best practices
+- Keep README.md updated with dependencies
+- Document module integration examples
+- Maintain clear API documentation
+
+# Cursor Project Rule
+name: ML Prototype Workspace
+summary: |
+  This repository contains several independent deep-learning prototypes that can reuse shared building blocks
+  (data loaders, training routines, configuration management, UI elements for demos, etc.).
+  Contributors are encouraged to:
+  - Organize reusable code in clearly structured modules.
+  - Keep configuration schemes consistent across prototypes.
+  - Document any UI-related dependencies or instructions under `README.md` or relevant module docs.
+
+guidance:
+  - When adding new prototypes, check for existing modules before implementing new ones.
+  - If a prototype includes a UI, ensure any front-end code is optional and clearly separated from core training logic.
+  - Prefer minimal, well-documented examples demonstrating how to integrate shared modules. 
+  Key Conventions:
+1. Begin projects with clear problem definition and dataset analysis.
+2. Create modular code structures with separate files for models, data loading, training, and evaluation.
+3. Use configuration files (e.g., YAML) for hyperparameters and model settings.
+4. Implement proper experiment tracking and model checkpointing.
+5. Use version control (e.g., git) for tracking changes in code and configurations.
