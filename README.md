@@ -3,6 +3,11 @@ The prototype of ML models.
 
 The project is implemented based on Torch Lightning.
 
+Install the dependencies with [uv](https://github.com/astral-sh/uv):
+```bash
+uv pip install -e .
+```
+
 The config file is in ml_prototype/config/transformer_lm.yaml.
 
 Run the training job with the following command:
