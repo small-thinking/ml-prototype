@@ -1,33 +1,38 @@
-[tool.poetry]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
 name = "ml-prototype"
 version = "0.1.0"
-description = ""
-authors = ["Yx Jiang <2237303+yxjiang@users.noreply.github.com>"]
+description = "The prototype of ML models."
 readme = "README.md"
-packages = [{include = "ml_prototype"}]
+requires-python = ">=3.10"
+authors = [{name = "Yx Jiang", email = "2237303+yxjiang@users.noreply.github.com"}]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-torch = "2.5.0"
-tqdm = "4.65.0"
-numpy = "^1.25.1"
-lightning = "2.4.0"
-sentencepiece = "0.1.99"
-python-dotenv = "^1.0.0"
-colorama = "^0.4.6"
-wandb = "^0.18.5"
-torchtext = "^0.18.0"
-python-dateutil = "^2.9.0.post0"
-torchmetrics = "^1.5.0"
-transformers = "^4.45.2"
-jsonargparse = {extras = ["signatures"], version = "^4.33.2"}
+dependencies = [
+    "torch==2.5.0",
+    "tqdm==4.65.0",
+    "numpy>=1.25.1",
+    "lightning==2.4.0",
+    "sentencepiece==0.1.99",
+    "python-dotenv>=1.0.0",
+    "colorama>=0.4.6",
+    "wandb>=0.18.5",
+    "torchtext>=0.18.0",
+    "python-dateutil>=2.9.0.post0",
+    "torchmetrics>=1.5.0",
+    "transformers>=4.45.2",
+    "jsonargparse[signatures]>=4.33.2",
+]
 
-[tool.poetry.group.dev.dependencies]
-pytest = "7.4.0"
-black = "23.7.0"
-isort = "5.12.0"
-flake8 = "6.0.0"
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.0",
+    "black==23.7.0",
+    "isort==5.12.0",
+    "flake8==6.0.0",
+]
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.hatch.build.targets.wheel]
+packages = ["ml_prototype"]
