@@ -47,12 +47,12 @@ save_adapter_weights_only: False
 
 # Dataset and Sampler
 dataset:
-  _component_: torchtune.datasets.stack_exchange_paired_dataset
+  _component_: torchtune.datasets.preference_dataset
   source: john02171574/reward-bench-2-converted
-  data_dir: /data/
+  split: rl
 seed: null
 shuffle: True
-batch_size: 4
+batch_size: 2  # 2 is the max batch size for single 4090 GPU
 
 # Optimizer and Scheduler
 optimizer:
@@ -62,15 +62,15 @@ optimizer:
   lr: 5e-5
 lr_scheduler:
   _component_: torchtune.training.lr_schedulers.get_cosine_schedule_with_warmup
-  num_warmup_steps: 100
+  num_warmup_steps: 500
 
 loss:
   _component_: torchtune.rlhf.loss.DPOLoss
 
 # Training
-epochs: 1
+epochs: 3
 max_steps_per_epoch: 1000
-gradient_accumulation_steps: 8  # Use to increase effective batch size
+gradient_accumulation_steps: 32  # Use to increase effective batch size
 compile: False  # torch.compile the model + loss, True increases speed + decreases memory
 
 # Logging
