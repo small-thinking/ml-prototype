@@ -2,7 +2,7 @@
 """
 import abc
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -53,7 +53,7 @@ class RMSNorm(nn.Module):
     def __init__(
         self,
         config: Dict[str, Any],
-        layer_shape: Tuple[int, int],
+        layer_shape: Union[int, Tuple[int, int]],
         eps: float = 1e-8,
         has_bias: bool = False,
     ):
@@ -62,23 +62,28 @@ class RMSNorm(nn.Module):
 
         Args:
             config (Dict[str, Any]): The shared configuration for the model.
-            layer_shape (Tuple[int, int]): The shape of the layer [seq_len, embed_dim].
+            layer_shape (Union[int, Tuple[int, int]]): Either the embedding dimension or a
+                tuple ``(seq_len, embed_dim)``.
             eps (float, optional): The epsilon value. Defaults to 1e-8.
             has_bias (bool, optional): Whether to use bias. Defaults to False.
         """
         super().__init__()
         self.config = config
-        self.layer_shape = layer_shape  # Shape: [seq_len, embed_dim]
+        self.layer_shape = layer_shape
         self.eps = eps
         self.has_bias = has_bias
-        self.scale = nn.Parameter(torch.ones(layer_shape[1]))  # Shape: [embed_dim]
+
+        if isinstance(layer_shape, tuple):
+            embed_dim = layer_shape[-1]
+        else:
+            embed_dim = layer_shape
+
+        self.scale = nn.Parameter(torch.ones(embed_dim))
 
         if self.has_bias:
-            self.bias = nn.Parameter(torch.zeros(layer_shape[1]))  # Shape: [embed_dim]
+            self.bias = nn.Parameter(torch.zeros(embed_dim))
         else:
-            self.bias = torch.zeros(
-                layer_shape[1], requires_grad=False
-            )  # Shape: [embed_dim]
+            self.bias = torch.zeros(embed_dim, requires_grad=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -92,7 +97,7 @@ class RMSNorm(nn.Module):
 
         # Normalize x by RMS value
         # Shape of x_normed: [batch, seq_len, embed_dim]
-        x_normed = x / (rms_x + self.eps)
+        x_normed = x / rms_x
 
         # Scale the normalized output
         # Shape of self.scale.unsqueeze(0).unsqueeze(0): [1, 1, embed_dim]
