@@ -193,3 +193,6 @@ ml_prototype/pipelines/**
 # Temp
 test.py
 .DS_Store
+
+# Wandb
+**/wandb/*
