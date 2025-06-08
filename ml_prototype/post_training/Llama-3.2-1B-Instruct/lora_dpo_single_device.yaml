@@ -49,6 +49,7 @@ save_adapter_weights_only: False
 dataset:
   _component_: torchtune.datasets.stack_exchange_paired_dataset
   source: john02171574/reward-bench-2-converted
+  data_dir: /data/
 seed: null
 shuffle: True
 batch_size: 4
