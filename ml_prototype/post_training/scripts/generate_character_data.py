@@ -197,7 +197,7 @@ def convert_data_to_sft_data(
                     "messages":
                     [
                         {"role": "user", "content": record["en_prompt"]},
-                        {"role": "assistant", "response": record["en_chosen"]}
+                        {"role": "assistant", "content": record["en_chosen"]}
                     ]}, ensure_ascii=False) + "\n"
             )
             f.write(
