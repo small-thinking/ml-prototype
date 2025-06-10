@@ -55,14 +55,14 @@ epochs: 1
 optimizer:
   _component_: torch.optim.AdamW
   fused: true
-  lr: 0.0003
-  weight_decay: 0.01
+  lr: 1e-4
+  weight_decay: 0.002
   # _component_: bitsandbytes.optim.PagedAdamW8bit
   # lr: 2e-5
 loss:
   _component_: torch.nn.CrossEntropyLoss
 max_steps_per_epoch: null
-gradient_accumulation_steps: 1  # Use to increase effective batch size
+gradient_accumulation_steps: 8  # Use to increase effective batch size
 optimizer_in_bwd: True  # True saves memory. Requires gradient_accumulation_steps=1
 clip_grad_norm: null
 compile: False  # torch.compile the model + loss, True increases speed + decreases memory
