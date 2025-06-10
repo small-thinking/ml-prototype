@@ -33,8 +33,8 @@ tokenizer:
 
 # Dataset
 dataset:
-  _component_: torchtune.datasets.alpaca_cleaned_dataset
-  packed: False  # True increases speed
+  _component_: torchtune.datasets.SFTDataset
+  source: john02171574/trump-rlaif-data-sft
 seed: null
 shuffle: True
 
