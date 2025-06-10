@@ -194,5 +194,8 @@ ml_prototype/pipelines/**
 test.py
 .DS_Store
 
+# Data
+**/data
+
 # Wandb
 **/wandb/*
