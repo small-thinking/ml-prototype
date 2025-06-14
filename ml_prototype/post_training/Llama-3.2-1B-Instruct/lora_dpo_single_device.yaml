@@ -43,16 +43,16 @@ checkpointer:
   output_dir: ${output_dir}
   model_type: LLAMA3_2
 resume_from_checkpoint: False
-save_adapter_weights_only: False
+save_adapter_weights_only: True
 
 # Dataset and Sampler
 dataset:
   _component_: torchtune.datasets.preference_dataset
-  source: john02171574/reward-bench-2-converted
-  split: rl
+  source: tech-tao/gang-jing_dpo_data
+  split: train
 seed: null
 shuffle: True
-batch_size: 2  # 2 is the max batch size for single 4090 GPU
+batch_size: 16  # 2 is the max batch size for single 4090 GPU
 
 # Optimizer and Scheduler
 optimizer:
@@ -70,7 +70,7 @@ loss:
 # Training
 epochs: 3
 max_steps_per_epoch: 1000
-gradient_accumulation_steps: 32  # Use to increase effective batch size
+gradient_accumulation_steps: 8  # Use to increase effective batch size
 compile: False  # torch.compile the model + loss, True increases speed + decreases memory
 
 # Logging
