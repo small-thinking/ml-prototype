@@ -6,32 +6,40 @@ import tqdm
 import argparse
 import datasets
 from huggingface_hub import login
+from typing import Literal
 
 
-def generate_topics(use_deepseek: bool = False, output_jsonl_path: str = "./data/topics.jsonl"):
-    load_dotenv()
+def load_prompt_template(category: str, stage: Literal["topic_gen", "question_gen", "data_gen"]) -> dict[str, str]:
+    """
+    Load the prompt template for the given stage.
+    The prompt templates for each category is in a folder in prompts folder.
+    And in the folder there should be 3 files:
+    - topic_gen_prompt.txt
+    - question_gen_prompt.txt
+    - data_gen_prompt.txt
+    The prompt template for the given stage is the content of the file.
+    """
+    prompt_template_path = os.path.join(os.path.dirname(__file__), "prompts", category, stage + "_prompt.txt")
+    if not os.path.exists(prompt_template_path):
+        raise FileNotFoundError(f"Prompt template file not found: {prompt_template_path}")
+    with open(prompt_template_path, "r") as f:
+        prompt_template = f.read()
+    return prompt_template
+
+
+def generate_topics(category: str, use_deepseek: bool = False):
+    load_dotenv(override=True)
 
     api_key = os.getenv("OPENAI_API_KEY")
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key) if not use_deepseek else OpenAI(api_key=api_key, base_url="https://api.deepseek.com/")
 
     # Generate 100 big topics
-    topic_gen_prompt = """
-    You are a helpful assistant to generate synthetic data for Trump character post-training.
-    We would first generate 100 diverse topics (less about politics). These topics will be used to generate prompts.
-    We can even include weird topics or interesting topics that is not likely asked Trump in real life.
-
-    Please for each topic generate a name, with a short description.
-    The output should be a jsonl compatible format, each with the following fields:
-    - "name": the name of the topic
-    - "description": the description of the topic
-
-    For example, output rows each is a json object in a line:
-    [
-        {{"name": "Science", "description": "A topic about science"}},
-        {{"name": "Political", "description": "A topic about politics"}}
-    ]
-
-    """
+    try:
+        topic_gen_prompt = load_prompt_template(category=category, stage="topic_gen")
+        print(f"Loaded topic gen prompt: {topic_gen_prompt}")
+    except FileNotFoundError as e:
+        print(f"Error loading topic gen prompt: {e}")
+        exit(1)
 
     print("Generating topics...")
     response = client.chat.completions.create(
@@ -43,16 +51,17 @@ def generate_topics(use_deepseek: bool = False, output_jsonl_path: str = "./data
             "type": "json_object",
         }
     )
-    print(type(response.choices[0].message.content))
 
     # Parse the response as a list of dicts
-    print(response.choices[0].message.content)
-    topics = json.loads(response.choices[0].message.content)
+    print(f"Response: {response.choices[0].message.content}")
+    topics = json.loads(response.choices[0].message.content)["data"]
     topic_list = [{"name": topic["name"], "description": topic["description"]} for topic in topics]
     print("Generated topics")
 
     # Save the topics to a jsonl file
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), output_jsonl_path)
+    # Create folder if not exists
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "topics.jsonl")
+    os.makedirs(os.path.dirname(output_jsonl_path), exist_ok=True)
     with open(output_jsonl_path, "a") as f:
         for topic in tqdm.tqdm(topic_list):
             f.write(json.dumps(topic) + "\n")
@@ -60,78 +69,88 @@ def generate_topics(use_deepseek: bool = False, output_jsonl_path: str = "./data
     print("Saved topics")
 
 
-def generate_questions():
-    pass
+def generate_questions(
+    category: str,
+    use_deepseek: bool = False,
+):
+    """
+    Read the topics from the jsonl file, and generate 100 questions for each topic.
+    The questions should be in the style of Trump.
+    The questions should be in English.
+    The questions should be in the format of:
+    {"topic": "<concise English prompt>", "theme": "{{theme}}"}
+    The questions should be saved to a jsonl file.
+    """
+
+    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "topics.jsonl")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
+
+    prompt_template = load_prompt_template(category=category, stage="question_gen")
+    print(f"Loaded question gen prompt: {prompt_template}")
+
+    api_key = os.getenv("OPENAI_API_KEY") if not use_deepseek else os.getenv("DEEPSEEK_API_KEY")
+    client = OpenAI(api_key=api_key) if not use_deepseek else OpenAI(api_key=api_key, base_url="https://api.deepseek.com/")
+
+    # Load the topics from the jsonl file
+    topics_jsonl_path = os.path.join(os.path.dirname(__file__), topics_jsonl_path)
+    with open(topics_jsonl_path, "r") as f:
+        themes = [json.loads(line) for line in f]
+    print(f"Loaded {len(themes)} themes from {topics_jsonl_path}")
+
+    # Generate the questions for each topic
+    with open(output_jsonl_path, "a") as f:
+        for theme in tqdm.tqdm(themes[19:]):
+            prompt = prompt_template.format(theme=theme["name"])
+            response = client.chat.completions.create(
+                model="gpt-4o-mini" if not use_deepseek else "deepseek-chat",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            try:
+                questions = json.loads(response.choices[0].message.content)["data"]
+                for question in questions:
+                    try:
+                        if "topic" in question:
+                            f.write(json.dumps({"topic": question["topic"], "theme": theme["name"]}) + "\n")
+                        else:
+                            print(f"Error: {question} is not a valid question")
+                    except Exception as e:
+                        print(f"Error: {e}")
+                        print(f"Problematic content: {question}")
+            except json.JSONDecodeError as e:
+                tqdm.tqdm.write(f"Error decoding JSON for theme {theme['name']}: {e}")
+                tqdm.tqdm.write(f"Problematic content: {response.choices[0].message.content}")
+            except Exception as e:
+                tqdm.tqdm.write(f"An unexpected error occurred for theme {theme['name']}: {e}")
+
+    print(f"Generated questions and saved to {output_jsonl_path}")
 
 
 def generate_data(
-        use_deepseek: bool = False,
-        question_jsonl_path: str = "./data/questions.jsonl",
-        data_jsonl_path: str = "./data/trump_conv_data.jsonl",
-        batch_size: int = 10,
+    category: str,
+    use_deepseek: bool = False,
+    batch_size: int = 10,
 ):
+    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
+    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
+
     api_key = os.getenv("OPENAI_API_KEY") if not use_deepseek else os.getenv("DEEPSEEK_API_KEY")
 
     # Deepseek API
     client = OpenAI(api_key=api_key) if not use_deepseek else OpenAI(api_key=api_key, base_url="https://api.deepseek.com/")
 
-    prompt_template = """
-    You are to respond in the distinctive speaking style of Donald J. Trump.
-
-    Style of Trump includes:
-    - Short, punchy sentences.
-    - Frequent repetition of key phrases.
-    - Confident, self-praising tone.
-    - Exaggerated claims (e.g., tremendous, disaster, fake).
-    - Blame others if needed.
-    - Reasoning can be shallow, but must sound assertive and concrete.
-    - Can demonstrate his wealthy lifestyle.
-    - Each response should be 3-5 sentences with around 50-100 words.
-
-    You will be given a list of questions in English. Your task is to:
-    1. Translate the question into Chinese.
-    2. Answer the question twice:
-    - Once in Trump's style (in both English and Chinese).
-    - Once in a neutral, academic style (in both English and Chinese).
-
-    Return a single-line JSON object with:
-    {{
-    "data": [
-        {{
-        "en_prompt": "...",
-        "cn_prompt": "...",
-        "en_chosen": "...",    # Trump-style English response
-        "cn_chosen": "...",    # Trump-style Chinese response
-        "en_rejected": "...",  # Neutral English response
-        "cn_rejected": "..."   # Neutral Chinese response
-        }},
-        ...
-    ]
-    }}
-
-    ### Example 1
-    Questions: ["What do you think about artificial intelligence?", "How do you feel about climate change?"]
-    Output:
-    {{
-    "data": [
-        {{"en_prompt": "What do you think about artificial intelligence?", "cn_prompt": "你怎么看人工智能？", "en_chosen": "AI? It's big. It's powerful. We’re gonna use it and dominate. I knew it since I were young. Nobody other than Elon does it better than me.", "cn_chosen": "人工智能？太厉害了。我们要用它来称霸。我很年轻的时候就知道这玩意儿了。除了Elon没人比我更会用。", "en_rejected": "Artificial intelligence is a transformative technology that presents both opportunities and risks. We must regulate it responsibly.", "cn_rejected": "人工智能是一项具有变革性的技术，既带来机遇，也伴随风险。我们需要负责任地进行监管。"}},
-        {{"en_prompt": "How do you feel about climate change?", "cn_prompt": "你怎么看气候变化？", "en_chosen": "Climate change? Total hoax. China loves it. It’s killing our jobs. We need strong energy, American energy!", "cn_chosen": "气候变化？彻头彻尾的骗局。中国高兴得很。但它毁了我们的工作岗位。我们需要强大的能源，美国的能源！", "en_rejected": "Climate change is a serious global issue that requires international cooperation and long-term environmental policy.", "cn_rejected": "气候变化是一个全球性问题，需要国际合作和长期的环保政策。"}}
-    ]
-    }}
-
-    ### Now you try
-    Question: [{questions}]
-    Output:
-    """
+    prompt_template = load_prompt_template(category=category, stage="data_gen")
+    print(f"Loaded data gen prompt: {prompt_template}")
 
     # Load the questions/conversation starters from the jsonl file
-    question_jsonl_path = os.path.join(os.path.dirname(__file__), question_jsonl_path)
-    with open(question_jsonl_path, "r") as f:
-        questions = [json.loads(line) for line in f]
+    with open(topics_jsonl_path, "r") as f:
+        topics = [json.loads(line) for line in f]
+    print(f"Loaded {len(topics)} topics from {topics_jsonl_path}")
 
     # Generate the data for each question, batch by 5 questions
     # Create file if not exists
     data_jsonl_path = os.path.join(os.path.dirname(__file__), data_jsonl_path)
+    print(f"Write to data jsonl path: {data_jsonl_path}")
     if not os.path.exists(data_jsonl_path):
         with open(data_jsonl_path, "w") as f:
             pass
@@ -139,12 +158,12 @@ def generate_data(
     with open(data_jsonl_path, "a", encoding="utf-8") as f:
         # Wrap the outer loop with tqdm for a progress bar
         # desc will show a description next to the progress bar
-        for i in tqdm.tqdm(range(1588, len(questions), batch_size), desc="Generating & Saving Data"):
-            # Construct the questions string from the list of questions for the current batch
-            questions_str = ", ".join([question["question"] for question in questions[i:i+batch_size]])
-            prompt = prompt_template.format(questions=questions_str)
+        for i in tqdm.tqdm(range(0, len(topics), batch_size), desc="Generating & Saving Data"):
+            # Construct the topic string from the list of topic for the current batch
+            topics_str = ", ".join([topic["topic"] for topic in topics[i:i+batch_size]])
+            prompt = prompt_template.format(topics=topics_str)
 
-            # Generate the data for each question batch
+            # Generate the data for each topics batch
             try:
                 response = client.chat.completions.create(
                     model="gpt-4o-mini" if not use_deepseek else "deepseek-chat",
@@ -165,8 +184,9 @@ def generate_data(
 
 
 def convert_data_to_sft_data(
-    data_jsonl_path: str = "./data/trump_conv_data.jsonl",
-    output_jsonl_path: str = "./data/trump_conv_sft_data.jsonl"
+    category: str,
+    request_key_suffix: str = "topic",
+    response_key_suffix: str = "contrarian",
 ):
     """
     Convert the data to a format that can be used for SFT.
@@ -183,8 +203,8 @@ def convert_data_to_sft_data(
     {"messages": [{"role": "user", "content": "original en prompt"}, {"role": "assistant", "content": "original en response"}]}
     {"messages": [{"role": "user", "content": "original cn prompt"}, {"role": "assistant", "content": "original cn response"}]}
     """
-    data_jsonl_path = os.path.join(os.path.dirname(__file__), data_jsonl_path)
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), output_jsonl_path)
+    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "sft_data.jsonl")
 
     print(f"Converting data from {data_jsonl_path} to {output_jsonl_path}")
     with open(data_jsonl_path, "r") as f:
@@ -196,24 +216,26 @@ def convert_data_to_sft_data(
                 json.dumps({
                     "messages":
                     [
-                        {"role": "user", "content": record["en_prompt"]},
-                        {"role": "assistant", "content": record["en_chosen"]}
+                        {"role": "user", "content": record["en_" + request_key_suffix]},
+                        {"role": "assistant", "content": record["en_" + response_key_suffix]}
                     ]}, ensure_ascii=False) + "\n"
             )
             f.write(
                 json.dumps({
                     "messages":
                     [
-                        {"role": "user", "content": record["cn_prompt"]},
-                        {"role": "assistant", "content": record["cn_chosen"]}
+                        {"role": "user", "content": record["cn_" + request_key_suffix]},
+                        {"role": "assistant", "content": record["cn_" + response_key_suffix]}
                     ]}, ensure_ascii=False) + "\n"
             )
     print(f"Converted data from {data_jsonl_path} to {output_jsonl_path}")
 
 
 def convert_data_to_dpo_data(
-    data_jsonl_path: str = "./data/trump_conv_data.jsonl",
-    output_jsonl_path: str = "./data/trump_conv_dpo_data.jsonl"
+    category: str,
+    request_key_suffix: str = "topic",
+    chosen_key_suffix: str = "contrarian",
+    rejected_key_suffix: str = "normal",
 ):
     """
     Convert the data to a format that can be used for DPO.
@@ -230,8 +252,8 @@ def convert_data_to_dpo_data(
     {"chosen": [{"role": "user", "content": "original en prompt"}, {"role": "assistant", "content": "original en response"}], "rejected": [{"role": "user", "content": "original en prompt"}, {"role": "assistant", "content": "original en response"}]}
     {"chosen": [{"role": "user", "content": "original cn prompt"}, {"role": "assistant", "content": "original cn response"}], "rejected": [{"role": "user", "content": "original cn prompt"}, {"role": "assistant", "content": "original cn response"}]}
     """
-    data_jsonl_path = os.path.join(os.path.dirname(__file__), data_jsonl_path)
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), output_jsonl_path)
+    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "dpo_data.jsonl")
 
     with open(data_jsonl_path, "r") as f:
         data = [json.loads(line) for line in f]
@@ -239,52 +261,93 @@ def convert_data_to_dpo_data(
     with open(output_jsonl_path, "w") as f:
         for record in tqdm.tqdm(data):
             f.write(
-                json.dumps({"chosen": [{"role": "user", "content": record["en_prompt"]}, {"role": "assistant", "content": record["en_chosen"]}], "rejected": [{"role": "user", "content": record["en_prompt"]}, {"role": "assistant", "content": record["en_rejected"]}]}, ensure_ascii=False) + "\n"
+                json.dumps({
+                    "chosen": [
+                        {"role": "user", "content": record["en_" + request_key_suffix]},
+                        {"role": "assistant", "content": record["en_" + chosen_key_suffix]}
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": record["en_" + request_key_suffix]},
+                        {"role": "assistant", "content": record["en_" + rejected_key_suffix]}
+                    ]
+                }, ensure_ascii=False) + "\n"
             )
             f.write(
-                json.dumps({"chosen": [{"role": "user", "content": record["cn_prompt"]}, {"role": "assistant", "content": record["cn_chosen"]}], "rejected": [{"role": "user", "content": record["cn_prompt"]}, {"role": "assistant", "content": record["cn_rejected"]}]}, ensure_ascii=False) + "\n"
+                json.dumps({
+                    "chosen": [
+                        {"role": "user", "content": record["cn_" + request_key_suffix]},
+                        {"role": "assistant", "content": record["cn_" + chosen_key_suffix]}
+                    ],
+                    "rejected": [
+                        {"role": "user", "content": record["cn_" + request_key_suffix]},
+                        {"role": "assistant", "content": record["cn_" + rejected_key_suffix]}
+                    ]}, ensure_ascii=False) + "\n"
             )
+
+
+def upload_data_to_hf(
+    category: str,
+    dataset_type: Literal["sft", "dpo"],
+):
+    """
+    Upload the data to Hugging Face.
+    """
+    load_dotenv(override=True)
+    dataset_name = f"{category}_{dataset_type}_data"
+    hf_token = os.getenv("HF_TOKEN")
+    login(token=hf_token)
+    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, f"{dataset_type}_data.jsonl")
+    dataset = datasets.load_dataset("json", data_files=data_jsonl_path)
+    dataset.push_to_hub("/".join(["tech-tao", dataset_name]))
 
 
 def arg_parser():
     """
     Parse the arguments.
     Example command:
-    python generate_character_data.py gen-topic --use_deepseek --output_jsonl_path ./data/topics.jsonl
-    python generate_character_data.py gen-data --use_deepseek --question_jsonl_path ./data/questions.jsonl --data_jsonl_path ./data/trump_conv_data.jsonl --batch_size 10
-    python generate_character_data.py convert-sft --data_jsonl_path ./data/trump_conv_data.jsonl --output_jsonl_path ./data/trump_conv_sft_data.jsonl
-    python generate_character_data.py convert-dpo --data_jsonl_path ./data/trump_conv_data.jsonl --output_jsonl_path ./data/trump_conv_dpo_data.jsonl
-    python generate_character_data.py upload-hf --data_jsonl_path ./data/trump_conv_data.jsonl --dataset_name trump_conv_data
+    python generate_character_data.py gen-topic --use_deepseek --category gang-jing
+    python generate_character_data.py gen-question --use_deepseek --category gang-jing
+    python generate_character_data.py gen-data --use_deepseek --batch_size 10 --category gang-jing
+    python generate_character_data.py convert-sft --category gang-jing
+    python generate_character_data.py convert-dpo --category gang-jing
+    python generate_character_data.py upload-hf --category gang-jing --dataset_type sft
     """
     parser = argparse.ArgumentParser(description="A CLI tool to generate character data for post-training")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Create generate topic subparser
     generate_topic_parser = subparsers.add_parser("gen-topic", help="Generate topics")
-    generate_topic_parser.add_argument("--use_deepseek", action="store_false", help="Use deepseek")
-    generate_topic_parser.add_argument("--output_jsonl_path", type=str, default="./data/topics.jsonl", help="Path to save the topics")
+    generate_topic_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    generate_topic_parser.add_argument("--use_deepseek", action="store_true", help="Use deepseek")
+    
+    # Create question subparser
+    generate_question_parser = subparsers.add_parser("gen-question", help="Generate questions")
+    generate_question_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    generate_question_parser.add_argument("--use_deepseek", action="store_true", help="Use deepseek")
 
     # Create generate data subparser
     generate_data_parser = subparsers.add_parser("gen-data", help="Generate data")
-    generate_data_parser.add_argument("--use_deepseek", action="store_false", help="Use deepseek")
-    generate_data_parser.add_argument("--question_jsonl_path", type=str, default="./data/questions.jsonl", help="Path to the questions jsonl file")
-    generate_data_parser.add_argument("--data_jsonl_path", type=str, default="./data/trump_conv_data.jsonl", help="Path to save the data")
+    generate_data_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    generate_data_parser.add_argument("--use_deepseek", action="store_true", help="Use deepseek")
     generate_data_parser.add_argument("--batch_size", type=int, default=10, help="Batch size")
 
     # Create convert data to sft data subparser
     convert_data_to_sft_parser = subparsers.add_parser("convert-sft", help="Convert data to SFT data")
-    convert_data_to_sft_parser.add_argument("--data_jsonl_path", type=str, default="./data/trump_conv_data.jsonl", help="Path to the data jsonl file")
-    convert_data_to_sft_parser.add_argument("--output_jsonl_path", type=str, default="./data/trump_conv_sft_data.jsonl", help="Path to save the SFT data")
+    convert_data_to_sft_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    convert_data_to_sft_parser.add_argument("--request_key_suffix", type=str, default="topic", help="Suffix of the request key")
+    convert_data_to_sft_parser.add_argument("--response_key_suffix", type=str, default="contrarian", help="Suffix of the response key")
 
     # Create convert data to dpo data subparser
     convert_data_to_dpo_parser = subparsers.add_parser("convert-dpo", help="Convert data to DPO data")
-    convert_data_to_dpo_parser.add_argument("--data_jsonl_path", type=str, default="./data/trump_conv_data.jsonl", help="Path to the data jsonl file")
-    convert_data_to_dpo_parser.add_argument("--output_jsonl_path", type=str, default="./data/trump_conv_dpo_data.jsonl", help="Path to save the DPO data")
+    convert_data_to_dpo_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    convert_data_to_dpo_parser.add_argument("--request_key_suffix", type=str, default="topic", help="Suffix of the request key")
+    convert_data_to_dpo_parser.add_argument("--chosen_key_suffix", type=str, default="contrarian", help="Suffix of the chosen key")
+    convert_data_to_dpo_parser.add_argument("--rejected_key_suffix", type=str, default="normal", help="Suffix of the rejected key")
 
     # Create upload data to hf subparser
     upload_data_to_hf_parser = subparsers.add_parser("upload-hf", help="Upload data to Hugging Face")
-    upload_data_to_hf_parser.add_argument("--data_jsonl_path", type=str, default="./data/trump_conv_data.jsonl", help="Path to the data jsonl file")
-    upload_data_to_hf_parser.add_argument("--dataset_name", type=str, default="trump_conv_data", help="Name of the dataset")
+    upload_data_to_hf_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    upload_data_to_hf_parser.add_argument("--dataset_type", type=str, default="sft", help="Type of the dataset")
 
     args = parser.parse_args()
     if args.command is None:
@@ -293,30 +356,17 @@ def arg_parser():
     return args
 
 
-def upload_data_to_hf(
-    data_jsonl_path: str,
-    dataset_name: str,
-):
-    """
-    Upload the data to Hugging Face.
-    """
-    load_dotenv()
-    hf_token = os.getenv("HF_TOKEN")
-    login(token=hf_token)
-    data_jsonl_path = os.path.join(os.path.dirname(__file__), data_jsonl_path)
-    dataset = datasets.load_dataset("json", data_files=data_jsonl_path)
-    dataset.push_to_hub("/".join(["john02171574", dataset_name]))
-
-
 if __name__ == "__main__":
     args = arg_parser()
     if args.command == "gen-topic":
-        generate_topics(args.use_deepseek, args.output_jsonl_path)
+        generate_topics(args.category, args.use_deepseek)
+    elif args.command == "gen-question":
+        generate_questions(args.category, args.use_deepseek)
     elif args.command == "gen-data":
-        generate_data(args.use_deepseek, args.question_jsonl_path, args.data_jsonl_path, args.batch_size)
+        generate_data(args.category, args.use_deepseek, args.batch_size)
     elif args.command == "convert-sft":
-        convert_data_to_sft_data(args.data_jsonl_path, args.output_jsonl_path)
+        convert_data_to_sft_data(args.category, args.request_key_suffix, args.response_key_suffix)
     elif args.command == "convert-dpo":
-        convert_data_to_dpo_data(args.data_jsonl_path, args.output_jsonl_path)
+        convert_data_to_dpo_data(args.category, args.request_key_suffix, args.chosen_key_suffix, args.rejected_key_suffix)
     elif args.command == "upload-hf":
-        upload_data_to_hf(args.data_jsonl_path, args.dataset_name)
+        upload_data_to_hf(args.category, args.dataset_type)
