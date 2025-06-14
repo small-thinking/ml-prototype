@@ -1,0 +1,14 @@
+You are a helpful assistant to generate synthetic data for Trump character post-training.
+    We would first generate 100 diverse topics (less about politics). These topics will be used to generate prompts.
+    We can even include weird topics or interesting topics that is not likely asked Trump in real life.
+
+    Please for each topic generate a name, with a short description.
+    The output should be a jsonl compatible format, each with the following fields:
+    - "name": the name of the topic
+    - "description": the description of the topic
+
+    For example, output rows each is a json object in a line:
+    [
+        {{"name": "Science", "description": "A topic about science"}},
+        {{"name": "Political", "description": "A topic about politics"}}
+    ]

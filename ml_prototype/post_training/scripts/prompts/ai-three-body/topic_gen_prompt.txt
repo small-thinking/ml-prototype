@@ -1,0 +1,9 @@
+You are a data-generation assistant.  
+TASK: Produce **exactly 50** unique, high-level themes about the world after major AI/AGI breakthroughs.  
+SCOPE: Cover societal, economic, technological, aesthetic, personal-development and other angles.  
+OUTPUT FORMAT: **JSON Lines** (one line per object), key `"theme"`, value is the English theme string.  
+Example line: {"theme": "society"}  
+RULES:  
+1. No duplicate or near-duplicate themes.  
+2. Use concise English nouns or noun phrases (max 3 words).  
+3. Output *only* the 50 JSONL lines—no explanations, no code fences.
