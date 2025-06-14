@@ -204,7 +204,7 @@ def convert_data_to_sft_data(
     {"messages": [{"role": "user", "content": "original cn prompt"}, {"role": "assistant", "content": "original cn response"}]}
     """
     data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "sft_data.jsonl")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, f"{response_key_suffix}_sft_data.jsonl")
 
     print(f"Converting data from {data_jsonl_path} to {output_jsonl_path}")
     with open(data_jsonl_path, "r") as f:
@@ -212,22 +212,26 @@ def convert_data_to_sft_data(
 
     with open(output_jsonl_path, "w") as f:
         for record in tqdm.tqdm(data):
-            f.write(
-                json.dumps({
-                    "messages":
-                    [
-                        {"role": "user", "content": record["en_" + request_key_suffix]},
-                        {"role": "assistant", "content": record["en_" + response_key_suffix]}
-                    ]}, ensure_ascii=False) + "\n"
-            )
-            f.write(
-                json.dumps({
-                    "messages":
-                    [
-                        {"role": "user", "content": record["cn_" + request_key_suffix]},
-                        {"role": "assistant", "content": record["cn_" + response_key_suffix]}
-                    ]}, ensure_ascii=False) + "\n"
-            )
+            try:
+                f.write(
+                    json.dumps({
+                        "messages":
+                        [
+                            {"role": "user", "content": record["en_" + request_key_suffix]},
+                            {"role": "assistant", "content": record["en_" + response_key_suffix]}
+                        ]}, ensure_ascii=False) + "\n"
+                )
+                f.write(
+                    json.dumps({
+                        "messages":
+                        [
+                            {"role": "user", "content": record["cn_" + request_key_suffix]},
+                            {"role": "assistant", "content": record["cn_" + response_key_suffix]}
+                        ]}, ensure_ascii=False) + "\n"
+                )
+            except Exception as e:
+                tqdm.tqdm.write(f"An unexpected error occurred for record {record}: {e}")
+
     print(f"Converted data from {data_jsonl_path} to {output_jsonl_path}")
 
 
@@ -235,7 +239,6 @@ def convert_data_to_dpo_data(
     category: str,
     request_key_suffix: str = "topic",
     chosen_key_suffix: str = "contrarian",
-    rejected_key_suffix: str = "normal",
 ):
     """
     Convert the data to a format that can be used for DPO.
@@ -245,58 +248,91 @@ def convert_data_to_dpo_data(
         "cn_prompt": "...",
         "en_chosen": "...",
         "cn_chosen": "...",
-        "en_rejected": "...",
-        "cn_rejected": "..."
+        "en_rejected1": "...",
+        "cn_rejected1": "...",
+        "en_rejected2": "...",
+        "cn_rejected2": "..."
     }
-    For each such record, we will generate 2 jsonl records, one for en, one for cn.
-    {"chosen": [{"role": "user", "content": "original en prompt"}, {"role": "assistant", "content": "original en response"}], "rejected": [{"role": "user", "content": "original en prompt"}, {"role": "assistant", "content": "original en response"}]}
-    {"chosen": [{"role": "user", "content": "original cn prompt"}, {"role": "assistant", "content": "original cn response"}], "rejected": [{"role": "user", "content": "original cn prompt"}, {"role": "assistant", "content": "original cn response"}]}
+    For each such record, we will generate multiple jsonl records, one for each rejected key suffix.
+    Each record will have the format:
+    {
+        "chosen": [{"role": "user", "content": "prompt"}, {"role": "assistant", "content": "chosen"}],
+        "rejected": [{"role": "user", "content": "prompt"}, {"role": "assistant", "content": "rejected"}]
+    }
     """
     data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "dpo_data.jsonl")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, f"{chosen_key_suffix}_dpo_data.jsonl")
 
     with open(data_jsonl_path, "r") as f:
         data = [json.loads(line) for line in f]
+    
+    if not data:
+        raise ValueError("No data found in the input file")
+
+    # Infer rejected key suffixes from the first record
+    first_record = data[0]
+    rejected_key_suffixes = []
+    for key in first_record.keys():
+        if key.startswith("en_") and key != f"en_{request_key_suffix}" and key != f"en_{chosen_key_suffix}":
+            rejected_key_suffixes.append(key[3:])  # Remove "en_" prefix
+
+    if not rejected_key_suffixes:
+        raise ValueError(f"No rejected key suffixes found in the data. Make sure there are keys other than {request_key_suffix} and {chosen_key_suffix}")
+
+    print(f"Found rejected key suffixes: {rejected_key_suffixes}")
 
     with open(output_jsonl_path, "w") as f:
         for record in tqdm.tqdm(data):
-            f.write(
-                json.dumps({
-                    "chosen": [
-                        {"role": "user", "content": record["en_" + request_key_suffix]},
-                        {"role": "assistant", "content": record["en_" + chosen_key_suffix]}
-                    ],
-                    "rejected": [
-                        {"role": "user", "content": record["en_" + request_key_suffix]},
-                        {"role": "assistant", "content": record["en_" + rejected_key_suffix]}
-                    ]
-                }, ensure_ascii=False) + "\n"
-            )
-            f.write(
-                json.dumps({
-                    "chosen": [
-                        {"role": "user", "content": record["cn_" + request_key_suffix]},
-                        {"role": "assistant", "content": record["cn_" + chosen_key_suffix]}
-                    ],
-                    "rejected": [
-                        {"role": "user", "content": record["cn_" + request_key_suffix]},
-                        {"role": "assistant", "content": record["cn_" + rejected_key_suffix]}
-                    ]}, ensure_ascii=False) + "\n"
-            )
+            try:
+                # Generate pairs for English
+                for rejected_suffix in rejected_key_suffixes:
+                    f.write(
+                        json.dumps({
+                            "chosen": [
+                                {"role": "user", "content": record["en_" + request_key_suffix]},
+                                {"role": "assistant", "content": record["en_" + chosen_key_suffix]}
+                            ],
+                            "rejected": [
+                                {"role": "user", "content": record["en_" + request_key_suffix]},
+                                {"role": "assistant", "content": record["en_" + rejected_suffix]}
+                            ]
+                        }, ensure_ascii=False) + "\n"
+                    )
+
+                # Generate pairs for Chinese
+                for rejected_suffix in rejected_key_suffixes:
+                    f.write(
+                        json.dumps({
+                            "chosen": [
+                                {"role": "user", "content": record["cn_" + request_key_suffix]},
+                                {"role": "assistant", "content": record["cn_" + chosen_key_suffix]}
+                            ],
+                            "rejected": [
+                                {"role": "user", "content": record["cn_" + request_key_suffix]},
+                                {"role": "assistant", "content": record["cn_" + rejected_suffix]}
+                            ]
+                        }, ensure_ascii=False) + "\n"
+                    )
+            except Exception:
+                continue
 
 
 def upload_data_to_hf(
     category: str,
     dataset_type: Literal["sft", "dpo"],
+    prefix: str = "",
 ):
     """
     Upload the data to Hugging Face.
     """
     load_dotenv(override=True)
-    dataset_name = f"{category}_{dataset_type}_data"
+    dataset_name = f"{category}_{prefix}_{dataset_type}_data"
     hf_token = os.getenv("HF_TOKEN")
+    print(f"Uploading data to Hugging Face: {dataset_name}")
     login(token=hf_token)
-    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, f"{dataset_type}_data.jsonl")
+    print("Logged in to Hugging Face")
+    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, f"{prefix}_{dataset_type}_data.jsonl")
+    print(f"Loading data from {data_jsonl_path}")
     dataset = datasets.load_dataset("json", data_files=data_jsonl_path)
     dataset.push_to_hub("/".join(["tech-tao", dataset_name]))
 
@@ -309,7 +345,7 @@ def arg_parser():
     python generate_character_data.py gen-question --use_deepseek --category gang-jing
     python generate_character_data.py gen-data --use_deepseek --batch_size 10 --category gang-jing
     python generate_character_data.py convert-sft --category gang-jing
-    python generate_character_data.py convert-dpo --category gang-jing
+    python generate_character_data.py convert-dpo --category gang-jing --request_key_suffix topic --chosen_key_suffix contrarian
     python generate_character_data.py upload-hf --category gang-jing --dataset_type sft
     """
     parser = argparse.ArgumentParser(description="A CLI tool to generate character data for post-training")
@@ -342,12 +378,12 @@ def arg_parser():
     convert_data_to_dpo_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
     convert_data_to_dpo_parser.add_argument("--request_key_suffix", type=str, default="topic", help="Suffix of the request key")
     convert_data_to_dpo_parser.add_argument("--chosen_key_suffix", type=str, default="contrarian", help="Suffix of the chosen key")
-    convert_data_to_dpo_parser.add_argument("--rejected_key_suffix", type=str, default="normal", help="Suffix of the rejected key")
 
     # Create upload data to hf subparser
     upload_data_to_hf_parser = subparsers.add_parser("upload-hf", help="Upload data to Hugging Face")
     upload_data_to_hf_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
     upload_data_to_hf_parser.add_argument("--dataset_type", type=str, default="sft", help="Type of the dataset")
+    upload_data_to_hf_parser.add_argument("--prefix", type=str, default="", help="Prefix of the dataset")
 
     args = parser.parse_args()
     if args.command is None:
@@ -367,6 +403,6 @@ if __name__ == "__main__":
     elif args.command == "convert-sft":
         convert_data_to_sft_data(args.category, args.request_key_suffix, args.response_key_suffix)
     elif args.command == "convert-dpo":
-        convert_data_to_dpo_data(args.category, args.request_key_suffix, args.chosen_key_suffix, args.rejected_key_suffix)
+        convert_data_to_dpo_data(args.category, args.request_key_suffix, args.chosen_key_suffix)
     elif args.command == "upload-hf":
-        upload_data_to_hf(args.category, args.dataset_type)
+        upload_data_to_hf(args.category, args.dataset_type, args.prefix)
