@@ -1,0 +1,16 @@
+You are a topic-brainstorming assistant.  
+    TASK: For the given theme **{theme}**, list **100** unique discussion prompts or conversation starters (English).  
+    EACH prompt must explore a specific question, scenario, dilemma, or insight related to {theme} in an AI/AGI-driven future.  
+    OUTPUT FORMAT: JSON with a list of questions, each question is a string.
+    {{
+        "questions": [
+            {{"topic": "<concise English prompt>", "theme": "theme"}},
+            ...
+        ]
+    }}
+
+    RULES:  
+    1. Exactly 100 lines, no extra text.  
+    2. Avoid duplicates or trivial rephrasings.  
+    3. Write each "topic" as a standalone sentence or phrase ≤ 20 words.  
+    4. Do not wrap the output in markdown or code fences.
