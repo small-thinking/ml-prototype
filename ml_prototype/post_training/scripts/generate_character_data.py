@@ -30,7 +30,7 @@ def load_prompt_template(category: str, stage: Literal["topic_gen", "question_ge
 def generate_topics(category: str, use_deepseek: bool = False):
     load_dotenv(override=True)
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY") if not use_deepseek else os.getenv("DEEPSEEK_API_KEY")
     client = OpenAI(api_key=api_key) if not use_deepseek else OpenAI(api_key=api_key, base_url="https://api.deepseek.com/")
 
     # Generate 100 big topics
@@ -99,7 +99,7 @@ def generate_questions(
 
     # Generate the questions for each topic
     with open(output_jsonl_path, "a") as f:
-        for theme in tqdm.tqdm(themes[19:]):
+        for theme in tqdm.tqdm(themes):
             prompt = prompt_template.format(theme=theme["name"])
             response = client.chat.completions.create(
                 model="gpt-4o-mini" if not use_deepseek else "deepseek-chat",
@@ -113,7 +113,7 @@ def generate_questions(
                         if "topic" in question:
                             f.write(json.dumps({"topic": question["topic"], "theme": theme["name"]}) + "\n")
                         else:
-                            print(f"Error: {question} is not a valid question")
+                            print(f"Error: {question} is not a valid question. Expected format: {{'topic': '...', 'theme': '...'}}")
                     except Exception as e:
                         print(f"Error: {e}")
                         print(f"Problematic content: {question}")
@@ -344,9 +344,9 @@ def arg_parser():
     python generate_character_data.py gen-topic --use_deepseek --category gang-jing
     python generate_character_data.py gen-question --use_deepseek --category gang-jing
     python generate_character_data.py gen-data --use_deepseek --batch_size 10 --category gang-jing
-    python generate_character_data.py convert-sft --category gang-jing
+    python generate_character_data.py convert-sft --category gang-jing --request_key_suffix topic --response_key_suffix contrarian
     python generate_character_data.py convert-dpo --category gang-jing --request_key_suffix topic --chosen_key_suffix contrarian
-    python generate_character_data.py upload-hf --category gang-jing --dataset_type sft
+    python generate_character_data.py upload-hf --category gang-jing --dataset_type sft --prefix contrarian
     """
     parser = argparse.ArgumentParser(description="A CLI tool to generate character data for post-training")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")

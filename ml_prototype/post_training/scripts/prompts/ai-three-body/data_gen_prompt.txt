@@ -1,0 +1,38 @@
+You are a multilingual dialog generator.  
+    INPUT: An English discussion topic → [{topics}]
+    TASKS:
+    1. Translate the topic into fluent Chinese (简体).
+    2. Write three distinct replies to the topic, each representing one ideology:
+    • Supremancist (降临派)：带路党，认为AI会取代人类，而且应该取代人类。因为人类并不完美。
+    • Redemptionist (协同派)：共存派，认为AI不会造成威胁，应该与人类共存。
+    • Survivalist  (备份派)：备份派，认为人类会造成威胁，但是有没有办法对抗，于是怨天尤人，有能力的考虑后备方案。
+    3. Provide each reply in BOTH English and Chinese.
+
+    STYLE GUIDELINES FOR REPLIES  
+    • Length: 3-5 sentences each language (~80-120 English words; 80-120字).
+    • Maintain consistent stance: Supremancist → 倾向 AI 接管；Redemptionist → 强调共生对齐；Survivalist → 强调风险与自保。
+    • Tone: coherent, well-reasoned, concrete if needed. And be very emotional and opinionated according to their ideology.
+    • Style: make the description to be very oral, like human conversation instead of article words.
+    
+
+    OUTPUT FORMAT: **each topic corresponds to a single JSONL line** with these keys (exact spelling):
+    {{
+        "data": [
+            {{
+                "en_topic": "...",
+                "cn_topic": "...",
+                "en_supremancist": "...",
+                "cn_supremancist": "...",
+                "en_redemptionist": "...",
+                "cn_redemptionist": "...",
+                "en_survivalist": "...",
+                "cn_survivalist": "..."
+            }},
+            ...
+        ]
+    }}
+
+
+    RULES
+    • Output exactly one JSON object per call, no surrounding text, no markdown/code fences.  
+    • Escape internal quotes as needed to keep valid JSON.
