@@ -23,7 +23,7 @@ output_dir: /workspace/models/Llama-3.2-3B-Instruct-DPO-GANG-JING
 # Dataset and Sampler
 dataset:
   _component_: torchtune.datasets.preference_dataset
-  source: tech-tao/gang-jing_dpo_data
+  source: tech-tao/gang-jing_contrarian_dpo_data
   # source: tech-tao/ai-three-body_survivalist_dpo_data
   # source: tech-tao/ai-three-body_supremacist_dpo_data
   # source: tech-tao/ai-three-body_redemptionist_dpo_data
@@ -34,7 +34,7 @@ batch_size: 16  # 2 is the max batch size for single 4090 GPU
 
 # Model Arguments
 model:
-  _component_: torchtune.models.llama3_2.lora_llama3_2_1b
+  _component_: torchtune.models.llama3_2.lora_llama3_2_3b
   lora_attn_modules: ['q_proj', 'v_proj', 'output_proj']
   apply_lora_to_mlp: True
   apply_lora_to_output: False
@@ -52,7 +52,8 @@ checkpointer:
   _component_: torchtune.training.FullModelHFCheckpointer
   checkpoint_dir: /workspace/models/Llama-3.2-3B-Instruct
   checkpoint_files: [
-    model.safetensors
+    model-00001-of-00002.safetensors,
+    model-00002-of-00002.safetensors
   ]
   recipe_checkpoint: null
   output_dir: ${output_dir}
@@ -85,7 +86,7 @@ metric_logger:
   # log_dir: ${output_dir}/logs
   _component_: torchtune.training.metric_logging.WandBLogger
   project: post-training
-  name: llama-3.2-1b-lora-dpo-single-device
+  name: llama-3.2-3b-lora-dpo-single-device
 log_every_n_steps: 1
 log_peak_memory_stats: True
 log_level: INFO  # DEBUG, WARN, etc.
