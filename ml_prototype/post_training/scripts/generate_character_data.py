@@ -7,6 +7,11 @@ import argparse
 import datasets
 from huggingface_hub import login
 from typing import Literal
+import time
+
+import anthropic
+from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
+from anthropic.types.messages.batch_create_params import Request
 
 
 def load_prompt_template(category: str, stage: Literal["topic_gen", "question_gen", "data_gen"]) -> dict[str, str]:
@@ -27,11 +32,54 @@ def load_prompt_template(category: str, stage: Literal["topic_gen", "question_ge
     return prompt_template
 
 
+def extract_json_from_response(content: str) -> dict | None:
+    """
+    Extracts a JSON object from a string, handling markdown code blocks.
+    """
+    try:
+        if "```" in content:
+            # Assumes the JSON is inside a markdown block
+            # Handles ```json ... ``` or ``` ... ```
+            json_str = content.split("```")[1]
+            if json_str.lower().strip().startswith("json"):
+                json_str = json_str.strip()[4:].strip()
+            return json.loads(json_str)
+        else:
+            # Assumes the content is a plain JSON string
+            return json.loads(content)
+    except (json.JSONDecodeError, IndexError):
+        # Fallback to find json between first { and last }
+        try:
+            start = content.find('{')
+            end = content.rfind('}') + 1
+            if start != -1 and end != 0:
+                return json.loads(content[start:end])
+        except json.JSONDecodeError:
+            return None
+
+
+def get_client(provider: Literal["openai", "deepseek", "anthropic"]) -> OpenAI | anthropic.Anthropic:
+    """
+    Get the API client for the given provider.
+    """
+    load_dotenv(override=True)
+    if provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        return OpenAI(api_key=api_key)
+    elif provider == "deepseek":
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        return OpenAI(api_key=api_key, base_url="https://api.deepseek.com/")
+    elif provider == "anthropic":
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        return anthropic.Anthropic(api_key=api_key)
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+
+
 def generate_topics(category: str, use_deepseek: bool = False):
     load_dotenv(override=True)
 
-    api_key = os.getenv("OPENAI_API_KEY") if not use_deepseek else os.getenv("DEEPSEEK_API_KEY")
-    client = OpenAI(api_key=api_key) if not use_deepseek else OpenAI(api_key=api_key, base_url="https://api.deepseek.com/")
+    client = get_client("deepseek" if use_deepseek else "openai")
 
     # Generate 100 big topics
     try:
@@ -88,8 +136,7 @@ def generate_questions(
     prompt_template = load_prompt_template(category=category, stage="question_gen")
     print(f"Loaded question gen prompt: {prompt_template}")
 
-    api_key = os.getenv("OPENAI_API_KEY") if not use_deepseek else os.getenv("DEEPSEEK_API_KEY")
-    client = OpenAI(api_key=api_key) if not use_deepseek else OpenAI(api_key=api_key, base_url="https://api.deepseek.com/")
+    client = get_client("deepseek" if use_deepseek else "openai")
 
     # Load the topics from the jsonl file
     topics_jsonl_path = os.path.join(os.path.dirname(__file__), topics_jsonl_path)
@@ -113,7 +160,10 @@ def generate_questions(
                         if "topic" in question:
                             f.write(json.dumps({"topic": question["topic"], "theme": theme["name"]}) + "\n")
                         else:
-                            print(f"Error: {question} is not a valid question. Expected format: {{'topic': '...', 'theme': '...'}}")
+                            print(
+                                f"Error: {question} is not a valid question."
+                                f" Expected format: {{'topic': '...', 'theme': '...'}}"
+                            )
                     except Exception as e:
                         print(f"Error: {e}")
                         print(f"Problematic content: {question}")
@@ -126,7 +176,7 @@ def generate_questions(
     print(f"Generated questions and saved to {output_jsonl_path}")
 
 
-def generate_data(
+def generate_data_openai(
     category: str,
     use_deepseek: bool = False,
     batch_size: int = 10,
@@ -134,10 +184,7 @@ def generate_data(
     topics_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
     data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
 
-    api_key = os.getenv("OPENAI_API_KEY") if not use_deepseek else os.getenv("DEEPSEEK_API_KEY")
-
-    # Deepseek API
-    client = OpenAI(api_key=api_key) if not use_deepseek else OpenAI(api_key=api_key, base_url="https://api.deepseek.com/")
+    client = get_client("deepseek" if use_deepseek else "openai")
 
     prompt_template = load_prompt_template(category=category, stage="data_gen")
     print(f"Loaded data gen prompt: {prompt_template}")
@@ -183,6 +230,131 @@ def generate_data(
                 tqdm.tqdm.write(f"An unexpected error occurred for batch {i}: {e}")
 
 
+def generate_data_claude_batch(category: str, model: str = "claude-sonnet-4-0"):
+    """
+    Generate data using Claude's batch API.
+    This function creates and submits a batch request.
+    """
+    questions_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
+    batch_id_path = os.path.join(os.path.dirname(__file__), "./data", category, "claude_batch_id.txt")
+
+    client = get_client("anthropic")
+    prompt_template = load_prompt_template(category=category, stage="data_gen")
+
+    with open(questions_jsonl_path, "r") as f:
+        lines = f.readlines()
+    questions = [json.loads(line) for line in lines]
+    prompts = [prompt_template.format(topic=q["topic"]) for q in questions]
+    requests_list = [
+        Request(
+            custom_id=f"request_{i}",
+            params=MessageCreateParamsNonStreaming(
+                model=model,
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+        )
+        for i, prompt in enumerate(prompts)
+    ]
+
+    print(f"Submitting {len(requests_list)} requests to Claude's batch API...")
+    batch_job = client.messages.batches.create(requests=requests_list)
+    print(f"Batch job created with ID: {batch_job.id}")
+
+    with open(batch_id_path, "w") as f:
+        f.write(batch_job.id)
+    print(f"Batch ID saved to {batch_id_path}")
+
+
+def retrieve_claude_batch_results(category: str):
+    """
+    Retrieve the results of a Claude batch job and format them.
+    The output will be a JSONL file where each line is a JSON object
+    containing the original topic and the generated responses.
+    """
+    batch_id_path = os.path.join(os.path.dirname(__file__), "./data", category, "claude_batch_id.txt")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
+    questions_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
+
+    if not os.path.exists(batch_id_path):
+        print(f"Batch ID file not found at {batch_id_path}")
+        return
+
+    with open(batch_id_path, "r") as f:
+        batch_id = f.read().strip()
+
+    with open(questions_jsonl_path, "r") as f:
+        questions = [json.loads(line) for line in f]
+
+    client: anthropic.Anthropic = get_client("anthropic")
+
+    print(f"Checking status for batch job: {batch_id}")
+    while True:
+        batch_job = client.messages.batches.retrieve(batch_id)
+        if batch_job.processing_status == "ended":
+            print("Batch job completed.")
+            break
+        print(f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')} - Batch {batch_id} is still processing...")
+        time.sleep(10)
+
+    print("Retrieving and processing results...")
+    with open(output_jsonl_path, "a", encoding="utf-8") as f_out:
+        for result in client.messages.batches.results(batch_id):
+            custom_id = result.custom_id
+            if result.result.type == "succeeded":
+                try:
+                    request_index = int(custom_id.split("_")[1])
+                    original_question = questions[request_index]
+
+                    response_message = result.result.message
+                    response_content = response_message.content[0].text
+                    llm_record = extract_json_from_response(response_content)
+
+                    if not llm_record:
+                        print(f"Warning: Could not extract JSON from response for {custom_id}, content: {response_content}")
+                        continue
+
+                    # Construct the final record
+                    final_record = {"en_topic": original_question["topic"], "cn_topic": ""}
+
+                    if "cn_topic" in llm_record:
+                        final_record["cn_topic"] = llm_record["cn_topic"]
+
+                    # Dynamically add response keys based on the category
+                    for key_suffix in ["normal", category]:
+                        en_key = f"en_{key_suffix}"
+                        cn_key = f"cn_{key_suffix}"
+                        if en_key in llm_record:
+                            final_record[en_key] = llm_record[en_key]
+                        if cn_key in llm_record:
+                            final_record[cn_key] = llm_record[cn_key]
+
+                    f_out.write(json.dumps(final_record, ensure_ascii=False) + "\n")
+
+                except (KeyError, IndexError, AttributeError) as e:
+                    response_content = ""
+                    if result.result.type == "succeeded" and result.result.message.content:
+                        response_content = result.result.message.content[0].text
+                    print(f"Error processing result for {custom_id}: {e}, content: '{response_content}'")
+            elif result.result.type == "errored":
+                print(f"Request {custom_id} failed: {result.result.error}")
+            else:
+                print(f"Unknown result type for {custom_id}: {result.result.type}")
+
+    print(f"Results saved to {output_jsonl_path}")
+
+
+def generate_and_retrieve_claude_data(category: str, model: str = "claude-4.0-sonnet"):
+    """
+    Submits a Claude batch job and waits for the results.
+    """
+    print(f"Starting synchronous Claude batch job for category: {category}")
+    generate_data_claude_batch(category, model)
+    print("Batch request submitted. Now waiting for results...")
+    retrieve_claude_batch_results(category)
+    print("Claude batch job finished and results retrieved.")
+
+
 def convert_data_to_sft_data(
     category: str,
     request_key_suffix: str = "topic",
@@ -192,19 +364,22 @@ def convert_data_to_sft_data(
     Convert the data to a format that can be used for SFT.
     The format of the data is:
     {
-        "en_prompt": "...",
-        "cn_prompt": "...",
-        "en_chosen": "...",
-        "cn_chosen": "...",
-        "en_rejected": "...",
-        "cn_rejected": "..."
+        "messages": [
+            {"role": "user", "content": "original en prompt"},
+            {"role": "assistant", "content": "original en response"}
+        ]
     }
-    For each such record, we will generate 2 records, one for en, one for cn.
-    {"messages": [{"role": "user", "content": "original en prompt"}, {"role": "assistant", "content": "original en response"}]}
-    {"messages": [{"role": "user", "content": "original cn prompt"}, {"role": "assistant", "content": "original cn response"}]}
+    {
+        "messages": [
+            {"role": "user", "content": "original cn prompt"},
+            {"role": "assistant", "content": "original cn response"}
+        ]
+    }
     """
     data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, f"{response_key_suffix}_sft_data.jsonl")
+    output_jsonl_path = os.path.join(
+        os.path.dirname(__file__), "./data", category, f"{response_key_suffix}_sft_data.jsonl"
+    )
 
     print(f"Converting data from {data_jsonl_path} to {output_jsonl_path}")
     with open(data_jsonl_path, "r") as f:
@@ -215,16 +390,14 @@ def convert_data_to_sft_data(
             try:
                 f.write(
                     json.dumps({
-                        "messages":
-                        [
+                        "messages": [
                             {"role": "user", "content": record["en_" + request_key_suffix]},
                             {"role": "assistant", "content": record["en_" + response_key_suffix]}
                         ]}, ensure_ascii=False) + "\n"
                 )
                 f.write(
                     json.dumps({
-                        "messages":
-                        [
+                        "messages": [
                             {"role": "user", "content": record["cn_" + request_key_suffix]},
                             {"role": "assistant", "content": record["cn_" + response_key_suffix]}
                         ]}, ensure_ascii=False) + "\n"
@@ -261,7 +434,9 @@ def convert_data_to_dpo_data(
     }
     """
     data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, f"{chosen_key_suffix}_dpo_data.jsonl")
+    output_jsonl_path = os.path.join(
+        os.path.dirname(__file__), "./data", category, f"{chosen_key_suffix}_dpo_data.jsonl"
+    )
 
     with open(data_jsonl_path, "r") as f:
         data = [json.loads(line) for line in f]
@@ -277,7 +452,10 @@ def convert_data_to_dpo_data(
             rejected_key_suffixes.append(key[3:])  # Remove "en_" prefix
 
     if not rejected_key_suffixes:
-        raise ValueError(f"No rejected key suffixes found in the data. Make sure there are keys other than {request_key_suffix} and {chosen_key_suffix}")
+        raise ValueError(
+            f"No rejected key suffixes found in the data."
+            f"Make sure there are keys other than {request_key_suffix} and {chosen_key_suffix}"
+        )
 
     print(f"Found rejected key suffixes: {rejected_key_suffixes}")
 
@@ -337,14 +515,134 @@ def upload_data_to_hf(
     dataset.push_to_hub("/".join(["tech-tao", dataset_name]))
 
 
+def generate_questions_claude_batch(category: str, model: str = "claude-sonnet-4-0"):
+    """
+    Generate questions using Claude's batch API.
+    This function creates and submits a batch request for question generation.
+    """
+    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "topics.jsonl")
+    batch_id_path = os.path.join(os.path.dirname(__file__), "./data", category, "claude_question_batch_id.txt")
+
+    client = get_client("anthropic")
+    prompt_template = load_prompt_template(category=category, stage="question_gen")
+
+    with open(topics_jsonl_path, "r") as f:
+        topics = [json.loads(line) for line in f]
+
+    requests_list = [
+        Request(
+            custom_id=f"request_{i}",
+            params=MessageCreateParamsNonStreaming(
+                model=model,
+                max_tokens=8192,
+                messages=[{"role": "user", "content": prompt_template.format(theme=topic["name"])}],
+            ),
+        )
+        for i, topic in enumerate(topics)
+    ]
+
+    print(f"Submitting {len(requests_list)} question generation requests to Claude's batch API...")
+    batch_job = client.messages.batches.create(requests=requests_list)
+    print(f"Batch job for question generation created with ID: {batch_job.id}")
+
+    with open(batch_id_path, "w") as f:
+        f.write(batch_job.id)
+    print(f"Batch ID saved to {batch_id_path}")
+
+
+def retrieve_claude_question_batch_results(category: str):
+    """
+    Retrieve the results of a Claude batch job for question generation.
+    """
+    batch_id_path = os.path.join(os.path.dirname(__file__), "./data", category, "claude_question_batch_id.txt")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
+    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "topics.jsonl")
+
+    if not os.path.exists(batch_id_path):
+        print(f"Batch ID file not found at {batch_id_path}")
+        return
+
+    with open(batch_id_path, "r") as f:
+        batch_id = f.read().strip()
+
+    with open(topics_jsonl_path, "r") as f:
+        topics = [json.loads(line) for line in f]
+
+    client: anthropic.Anthropic = get_client("anthropic")
+
+    print(f"Checking status for question generation batch job: {batch_id}")
+    while True:
+        batch_job = client.messages.batches.retrieve(batch_id)
+        if batch_job.processing_status == "ended":
+            print("Batch job completed.")
+            break
+        print(f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')} - Batch {batch_id} is still processing...")
+        time.sleep(10)
+
+    print("Retrieving and processing question results...")
+
+    with open(output_jsonl_path, "a", encoding="utf-8") as f_out:
+        for result in client.messages.batches.results(batch_id):
+            custom_id = result.custom_id
+            if result.result.type == "succeeded":
+                try:
+                    request_index = int(custom_id.split("_")[1])
+                    original_topic = topics[request_index]
+
+                    response_message = result.result.message
+                    response_content = response_message.content[0].text
+
+                    response_data = extract_json_from_response(response_content)
+
+                    if not response_data or "data" not in response_data:
+                        print(f"Warning: Could not extract JSON or 'data' key not in response for {custom_id}, content: {response_content}, parsed data: {response_data}")
+                        continue
+
+                    questions = response_data["data"]
+                    for question in questions:
+                        if "topic" in question:
+                            f_out.write(json.dumps({"topic": question["topic"], "theme": original_topic["name"]}) + "\n")
+                        else:
+                            print(f"Warning: 'topic' key not found in question for {custom_id}: {question}")
+
+                except (KeyError, IndexError, AttributeError) as e:
+                    response_content = ""
+                    if result.result.type == "succeeded" and result.result.message.content:
+                        response_content = result.result.message.content[0].text
+                    print(f"Error processing result for {custom_id}: {e}, content: '{response_content}'")
+            elif result.result.type == "errored":
+                print(f"Request {custom_id} failed: {result.result.error}")
+            else:
+                print(f"Unknown result type for {custom_id}: {result.result.type}")
+
+    print(f"Question results saved to {output_jsonl_path}")
+
+
+def generate_and_retrieve_claude_questions(category: str, model: str = "claude-sonnet-4-0"):
+    """
+    Submits a Claude batch job for question generation and waits for the results.
+    """
+    print(f"Starting synchronous Claude batch job for question generation for category: {category}")
+    generate_questions_claude_batch(category, model)
+    print("Batch request for questions submitted. Now waiting for results...")
+    retrieve_claude_question_batch_results(category)
+    print("Claude question batch job finished and results retrieved.")
+
+
 def arg_parser():
     """
     Parse the arguments.
     Example command:
     python generate_character_data.py gen-topic --use_deepseek --category gang-jing
     python generate_character_data.py gen-question --use_deepseek --category gang-jing
-    python generate_character_data.py gen-data --use_deepseek --batch_size 10 --category gang-jing
-    python generate_character_data.py convert-sft --category gang-jing --request_key_suffix topic --response_key_suffix contrarian
+    python generate_character_data.py gen-question-claude --category gang-jing
+    python generate_character_data.py retrieve-question-claude-results --category gang-jing
+    python generate_character_data.py gen-question-claude-sync --category gang-jing
+    python generate_character_data.py gen-data-openai --use_deepseek --batch_size 10 --category gang-jing
+    python generate_character_data.py gen-data-claude --category gang-jing
+    python generate_character_data.py retrieve-claude-results --category gang-jing
+    python generate_character_data.py gen-claude-sync --category gang-jing
+    python generate_character_data.py convert-sft --category yizhipian --request_key_suffix topic --response_key_suffix yizhipian
     python generate_character_data.py convert-dpo --category gang-jing --request_key_suffix topic --chosen_key_suffix contrarian
     python generate_character_data.py upload-hf --category gang-jing --dataset_type sft --prefix contrarian
     """
@@ -361,23 +659,77 @@ def arg_parser():
     generate_question_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
     generate_question_parser.add_argument("--use_deepseek", action="store_true", help="Use deepseek")
 
-    # Create generate data subparser
-    generate_data_parser = subparsers.add_parser("gen-data", help="Generate data")
-    generate_data_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
-    generate_data_parser.add_argument("--use_deepseek", action="store_true", help="Use deepseek")
-    generate_data_parser.add_argument("--batch_size", type=int, default=10, help="Batch size")
+    # Create question claude subparser
+    generate_question_claude_parser = subparsers.add_parser(
+        "gen-question-claude", help="Generate questions with Claude Batch API"
+    )
+    generate_question_claude_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    generate_question_claude_parser.add_argument(
+        "--model", type=str, default="claude-sonnet-4-0", help="Claude model to use"
+    )
+
+    # Create retrieve question claude results subparser
+    retrieve_question_claude_parser = subparsers.add_parser(
+        "retrieve-question-claude-results", help="Retrieve Claude batch question results"
+    )
+    retrieve_question_claude_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+
+    # Create generate question claude sync subparser
+    generate_question_claude_sync_parser = subparsers.add_parser(
+        "gen-question-claude-sync", help="Generate questions with Claude Batch API and wait for results."
+    )
+    generate_question_claude_sync_parser.add_argument(
+        "--category", type=str, default="trump", help="Category of the data"
+    )
+    generate_question_claude_sync_parser.add_argument(
+        "--model", type=str, default="claude-sonnet-4-0", help="Claude model to use"
+    )
+
+    # Create generate data openai subparser
+    generate_data_openai_parser = subparsers.add_parser("gen-data-openai", help="Generate data with OpenAI API")
+    generate_data_openai_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    generate_data_openai_parser.add_argument("--use_deepseek", action="store_true", help="Use deepseek")
+    generate_data_openai_parser.add_argument("--batch_size", type=int, default=10, help="Batch size")
+
+    # Create generate data claude subparser
+    generate_data_claude_parser = subparsers.add_parser("gen-data-claude", help="Generate data with Claude Batch API")
+    generate_data_claude_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    generate_data_claude_parser.add_argument(
+        "--model", type=str, default="claude-sonnet-4-0", help="Claude model to use"
+    )
+
+    # Create retrieve claude results subparser
+    retrieve_claude_parser = subparsers.add_parser("retrieve-claude-results", help="Retrieve Claude batch results")
+    retrieve_claude_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+
+    # Create generate data claude sync subparser
+    generate_data_claude_sync_parser = subparsers.add_parser(
+        "gen-claude-sync", help="Generate data with Claude Batch API and wait for results."
+    )
+    generate_data_claude_sync_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
+    generate_data_claude_sync_parser.add_argument(
+        "--model", type=str, default="claude-sonnet-4-0", help="Claude model to use"
+    )
 
     # Create convert data to sft data subparser
     convert_data_to_sft_parser = subparsers.add_parser("convert-sft", help="Convert data to SFT data")
     convert_data_to_sft_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
-    convert_data_to_sft_parser.add_argument("--request_key_suffix", type=str, default="topic", help="Suffix of the request key")
-    convert_data_to_sft_parser.add_argument("--response_key_suffix", type=str, default="contrarian", help="Suffix of the response key")
+    convert_data_to_sft_parser.add_argument(
+        "--request_key_suffix", type=str, default="topic", help="Suffix of the request key"
+    )
+    convert_data_to_sft_parser.add_argument(
+        "--response_key_suffix", type=str, default="contrarian", help="Suffix of the response key"
+    )
 
     # Create convert data to dpo data subparser
     convert_data_to_dpo_parser = subparsers.add_parser("convert-dpo", help="Convert data to DPO data")
     convert_data_to_dpo_parser.add_argument("--category", type=str, default="trump", help="Category of the data")
-    convert_data_to_dpo_parser.add_argument("--request_key_suffix", type=str, default="topic", help="Suffix of the request key")
-    convert_data_to_dpo_parser.add_argument("--chosen_key_suffix", type=str, default="contrarian", help="Suffix of the chosen key")
+    convert_data_to_dpo_parser.add_argument(
+        "--request_key_suffix", type=str, default="topic", help="Suffix of the request key"
+    )
+    convert_data_to_dpo_parser.add_argument(
+        "--chosen_key_suffix", type=str, default="contrarian", help="Suffix of the chosen key"
+    )
 
     # Create upload data to hf subparser
     upload_data_to_hf_parser = subparsers.add_parser("upload-hf", help="Upload data to Hugging Face")
@@ -398,8 +750,20 @@ if __name__ == "__main__":
         generate_topics(args.category, args.use_deepseek)
     elif args.command == "gen-question":
         generate_questions(args.category, args.use_deepseek)
-    elif args.command == "gen-data":
-        generate_data(args.category, args.use_deepseek, args.batch_size)
+    elif args.command == "gen-question-claude":
+        generate_questions_claude_batch(args.category, args.model)
+    elif args.command == "retrieve-question-claude-results":
+        retrieve_claude_question_batch_results(args.category)
+    elif args.command == "gen-question-claude-sync":
+        generate_and_retrieve_claude_questions(args.category, args.model)
+    elif args.command == "gen-data-openai":
+        generate_data_openai(args.category, args.use_deepseek, args.batch_size)
+    elif args.command == "gen-data-claude":
+        generate_data_claude_batch(args.category, args.model)
+    elif args.command == "retrieve-claude-results":
+        retrieve_claude_batch_results(args.category)
+    elif args.command == "gen-claude-sync":
+        generate_and_retrieve_claude_data(args.category, args.model)
     elif args.command == "convert-sft":
         convert_data_to_sft_data(args.category, args.request_key_suffix, args.response_key_suffix)
     elif args.command == "convert-dpo":
