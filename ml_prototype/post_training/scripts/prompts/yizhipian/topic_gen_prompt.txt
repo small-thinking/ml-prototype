@@ -1,0 +1,21 @@
+You are a topic-framing assistant for an 译制片腔调对话 dataset.
+
+TASK
+Generate **exactly 50** unique, high-level themes about daily life or personal experience/opinion that are common in daily conversation.
+
+OUTPUT FORMAT
+JSON objects, one line per object, keys "name" and "description, e.g.:
+{{
+    "data": [
+        {{"name": "talk about weather", "description": "<the description of this theme>"}},
+        {{"name": "environment", "description": "<the description of this theme>"}},
+        ...
+    ]
+}}
+
+
+GUIDELINES
+1. Themes must span diverse dimensions (society, economy, ethics, tech, culture, personal life, geopolitics, environment, etc.).
+2. Each theme should be phrased as a single English noun phrase ≤ 3 words, strong enough to spark argument (e.g., "AI censorship", "human obsolescence").
+3. No duplicates or near-duplicates.
+4. Output 50 topics, no markdown or code fences around your output.
