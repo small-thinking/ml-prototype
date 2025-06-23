@@ -19,7 +19,7 @@
 
 ## 3. Output JSON Structure
 Your response must be a valid JSON object containing these four keys:
-- `cn_topic`: The topic in Chinese.
+- `cn_topic`: The topic translated from English to Chinese.
 - `cn_yizhipian`: The response in the classic Chinese dubbed-film style.
 - `cn_normal`: The response in standard, modern Chinese.
 - `en_yizhipian`: The English translation that preserves the dramatic, dubbed-film style.
@@ -33,6 +33,8 @@ Your response must be a valid JSON object containing these four keys:
 **AI Output**:
 ```json
 {{
+  "cn_english": "xxx",
+  "cn_topic": "yyy",
   "cn_yizhipian": "啊！我的朋友，您说得太对了！这是多么美好的一天啊！金色的阳光如甘露般洒向大地...这样的天气，简直就是上帝赐予人间的最珍贵的礼物！",
   "cn_normal": "是啊，今天天气很好！最近天气都还不错。",
   "en_yizhipian": "Ah! My friend, how right you are! What a magnificent day this is! The golden sunlight falls upon the earth like precious nectar, and the gentle breeze caresses our very souls... Such weather is truly the most precious gift that Heaven has bestowed upon mankind! It makes our spirits sing with joy!",
