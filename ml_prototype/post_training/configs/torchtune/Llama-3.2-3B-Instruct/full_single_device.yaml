@@ -19,7 +19,10 @@
 #
 # This config works only for training on single device.
 
-output_dir: /workspace/models/Llama-3.2-3B-Instruct-SFT-GANG-JING
+post-train-type: sft
+name: yizhipian
+key-name: yizhipian
+output_dir: /workspace/models/Llama-3.2-3B-Instruct-${post-train-type}-${name}
 # output_dir: /workspace/models/Llama-3.2-3B-Instruct-SFT-AI-THREE-BODY-SURVIVALIST
 # output_dir: /workspace/models/Llama-3.2-3B-Instruct-SFT-AI-THREE-BODY-SUPREMACIST
 # output_dir: /workspace/models/Llama-3.2-3B-Instruct-SFT-AI-THREE-BODY-REDEMPTIONIST
@@ -29,7 +32,7 @@ dataset:
   _component_: torchtune.datasets.chat_dataset
   conversation_column: messages
   conversation_style: openai
-  source: tech-tao/gang-jing_contrarian_sft_data
+  source: tech-tao/${name}_${key-name}_${post-train-type}_data
   # source: tech-tao/ai-three-body_survivalist_sft_data
   # source: tech-tao/ai-three-body_supremacist_sft_data
   # source: tech-tao/ai-three-body_redemptionist_sft_data
@@ -89,8 +92,8 @@ dtype: bf16
 # # Logging
 metric_logger:
   _component_: torchtune.training.metric_logging.WandBLogger
-  project: sft-gang-jing
-  name: llama-3.2-3b-sft-gang-jing
+  project: ${post-train-type}-${name}
+  name: llama-3.2-3b-${post-train-type}-${name}
 log_every_n_steps: 1
 log_peak_memory_stats: false
 log_level: INFO  # DEBUG, WARN, etc.
