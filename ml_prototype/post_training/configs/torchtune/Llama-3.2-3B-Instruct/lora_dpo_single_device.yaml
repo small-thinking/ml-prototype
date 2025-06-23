@@ -15,7 +15,10 @@
 #
 # This config works only for training on single device.
 
-output_dir: /workspace/models/Llama-3.2-3B-Instruct-DPO-GANG-JING
+post-train-type: dpo
+name: yizhipian
+key-name: yizhipian
+output_dir: /workspace/models/Llama-3.2-3B-Instruct-${post-train-type}-${name}
 # output_dir: /workspace/models/Llama-3.2-3B-Instruct-DPO-AI-THREE-BODY-SURVIVALIST
 # output_dir: /workspace/models/Llama-3.2-3B-Instruct-DPO-AI-THREE-BODY-SUPREMACIST
 # output_dir: /workspace/models/Llama-3.2-3B-Instruct-DPO-AI-THREE-BODY-REDEMPTIONIST
@@ -23,7 +26,7 @@ output_dir: /workspace/models/Llama-3.2-3B-Instruct-DPO-GANG-JING
 # Dataset and Sampler
 dataset:
   _component_: torchtune.datasets.preference_dataset
-  source: tech-tao/gang-jing_contrarian_dpo_data
+  source: tech-tao/${name}_${key-name}_${post-train-type}_data
   # source: tech-tao/ai-three-body_survivalist_dpo_data
   # source: tech-tao/ai-three-body_supremacist_dpo_data
   # source: tech-tao/ai-three-body_redemptionist_dpo_data
@@ -86,7 +89,7 @@ metric_logger:
   # log_dir: ${output_dir}/logs
   _component_: torchtune.training.metric_logging.WandBLogger
   project: post-training
-  name: llama-3.2-3b-lora-dpo-single-device
+  name: llama-3.2-3b-${post-train-type}-${name}
 log_every_n_steps: 1
 log_peak_memory_stats: True
 log_level: INFO  # DEBUG, WARN, etc.
