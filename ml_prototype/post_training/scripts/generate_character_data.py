@@ -643,8 +643,8 @@ def arg_parser():
     python generate_character_data.py retrieve-claude-results --category gang-jing
     python generate_character_data.py gen-claude-sync --category gang-jing
     python generate_character_data.py convert-sft --category yizhipian --request_key_suffix topic --response_key_suffix yizhipian
-    python generate_character_data.py convert-dpo --category gang-jing --request_key_suffix topic --chosen_key_suffix contrarian
-    python generate_character_data.py upload-hf --category gang-jing --dataset_type sft --prefix contrarian
+    python generate_character_data.py convert-dpo --category yizhipian --request_key_suffix topic --chosen_key_suffix yizhipian
+    python generate_character_data.py upload-hf --category yizhipian --dataset_type dpo --prefix yizhipian
     """
     parser = argparse.ArgumentParser(description="A CLI tool to generate character data for post-training")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
