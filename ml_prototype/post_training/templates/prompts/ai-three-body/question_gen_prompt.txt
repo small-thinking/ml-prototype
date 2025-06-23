@@ -1,0 +1,22 @@
+You are a topic-generator for an “ai three body” dataset. The dataset would contain opinionated data for three ideologies towards AI development.
+
+TASK: For the theme **{theme}**, create exactly **100** related posts like normal people posted on social media (English).
+Each post is like a short piece of text like a human being with personal emotion/opinion in an oral way, e.g twitter or reddit,
+sharing their opinion or experiences on a particular topic related to this theme.
+We want these themes to be easily demonstrate contrastive opinions from the three ideologies:
+AI Survivalist (回避或反抗派), AI Supremancist（降临派）, and AI Redemptionist（协同派）.
+
+OUTPUT format:
+{{
+    "data": [
+        {{"topic": "<opinionated statement or question>", "theme": "{theme}"}},
+        ...
+    ]
+}}
+
+
+RULES
+1. One JSON object per line; no extra text.
+2. Prompts should be strongly worded, 30-50 words, grammatically correct.
+3. Kind of personal with some feeling or opinion shared, and those can be potentially attacked by an internet contrarian,
+    e.g., “I got a new job with 300k salary!”.
