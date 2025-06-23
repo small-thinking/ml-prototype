@@ -24,7 +24,7 @@ def load_prompt_template(category: str, stage: Literal["topic_gen", "question_ge
     - data_gen_prompt.txt
     The prompt template for the given stage is the content of the file.
     """
-    prompt_template_path = os.path.join(os.path.dirname(__file__), "prompts", category, stage + "_prompt.txt")
+    prompt_template_path = os.path.join(os.path.dirname(__file__), "../templates/prompts", category, stage + "_prompt.txt")
     if not os.path.exists(prompt_template_path):
         raise FileNotFoundError(f"Prompt template file not found: {prompt_template_path}")
     with open(prompt_template_path, "r") as f:
@@ -108,7 +108,7 @@ def generate_topics(category: str, use_deepseek: bool = False):
 
     # Save the topics to a jsonl file
     # Create folder if not exists
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "topics.jsonl")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "topics.jsonl")
     os.makedirs(os.path.dirname(output_jsonl_path), exist_ok=True)
     with open(output_jsonl_path, "a") as f:
         for topic in tqdm.tqdm(topic_list):
@@ -130,8 +130,8 @@ def generate_questions(
     The questions should be saved to a jsonl file.
     """
 
-    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "topics.jsonl")
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
+    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "topics.jsonl")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "questions.jsonl")
 
     prompt_template = load_prompt_template(category=category, stage="question_gen")
     print(f"Loaded question gen prompt: {prompt_template}")
@@ -181,8 +181,8 @@ def generate_data_openai(
     use_deepseek: bool = False,
     batch_size: int = 10,
 ):
-    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
-    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
+    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "questions.jsonl")
+    data_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "conv_data.jsonl")
 
     client = get_client("deepseek" if use_deepseek else "openai")
 
@@ -235,8 +235,8 @@ def generate_data_claude_batch(category: str, model: str = "claude-sonnet-4-0"):
     Generate data using Claude's batch API.
     This function creates and submits a batch request.
     """
-    questions_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
-    batch_id_path = os.path.join(os.path.dirname(__file__), "./data", category, "claude_batch_id.txt")
+    questions_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "questions.jsonl")
+    batch_id_path = os.path.join(os.path.dirname(__file__), "../data", category, "claude_batch_id.txt")
 
     client = get_client("anthropic")
     prompt_template = load_prompt_template(category=category, stage="data_gen")
@@ -272,9 +272,9 @@ def retrieve_claude_batch_results(category: str):
     The output will be a JSONL file where each line is a JSON object
     containing the original topic and the generated responses.
     """
-    batch_id_path = os.path.join(os.path.dirname(__file__), "./data", category, "claude_batch_id.txt")
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
-    questions_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
+    batch_id_path = os.path.join(os.path.dirname(__file__), "../data", category, "claude_batch_id.txt")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "conv_data.jsonl")
+    questions_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "questions.jsonl")
 
     if not os.path.exists(batch_id_path):
         print(f"Batch ID file not found at {batch_id_path}")
@@ -376,9 +376,9 @@ def convert_data_to_sft_data(
         ]
     }
     """
-    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
+    data_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "conv_data.jsonl")
     output_jsonl_path = os.path.join(
-        os.path.dirname(__file__), "./data", category, f"{response_key_suffix}_sft_data.jsonl"
+        os.path.dirname(__file__), "../data", category, f"{response_key_suffix}_sft_data.jsonl"
     )
 
     print(f"Converting data from {data_jsonl_path} to {output_jsonl_path}")
@@ -433,9 +433,9 @@ def convert_data_to_dpo_data(
         "rejected": [{"role": "user", "content": "prompt"}, {"role": "assistant", "content": "rejected"}]
     }
     """
-    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "conv_data.jsonl")
+    data_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "conv_data.jsonl")
     output_jsonl_path = os.path.join(
-        os.path.dirname(__file__), "./data", category, f"{chosen_key_suffix}_dpo_data.jsonl"
+        os.path.dirname(__file__), "../data", category, f"{chosen_key_suffix}_dpo_data.jsonl"
     )
 
     with open(data_jsonl_path, "r") as f:
@@ -509,7 +509,7 @@ def upload_data_to_hf(
     print(f"Uploading data to Hugging Face: {dataset_name}")
     login(token=hf_token)
     print("Logged in to Hugging Face")
-    data_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, f"{prefix}_{dataset_type}_data.jsonl")
+    data_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, f"{prefix}_{dataset_type}_data.jsonl")
     print(f"Loading data from {data_jsonl_path}")
     dataset = datasets.load_dataset("json", data_files=data_jsonl_path)
     dataset.push_to_hub("/".join(["tech-tao", dataset_name]))
@@ -520,8 +520,8 @@ def generate_questions_claude_batch(category: str, model: str = "claude-sonnet-4
     Generate questions using Claude's batch API.
     This function creates and submits a batch request for question generation.
     """
-    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "topics.jsonl")
-    batch_id_path = os.path.join(os.path.dirname(__file__), "./data", category, "claude_question_batch_id.txt")
+    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "topics.jsonl")
+    batch_id_path = os.path.join(os.path.dirname(__file__), "../data", category, "claude_question_batch_id.txt")
 
     client = get_client("anthropic")
     prompt_template = load_prompt_template(category=category, stage="question_gen")
@@ -554,9 +554,9 @@ def retrieve_claude_question_batch_results(category: str):
     """
     Retrieve the results of a Claude batch job for question generation.
     """
-    batch_id_path = os.path.join(os.path.dirname(__file__), "./data", category, "claude_question_batch_id.txt")
-    output_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "questions.jsonl")
-    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "./data", category, "topics.jsonl")
+    batch_id_path = os.path.join(os.path.dirname(__file__), "../data", category, "claude_question_batch_id.txt")
+    output_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "questions.jsonl")
+    topics_jsonl_path = os.path.join(os.path.dirname(__file__), "../data", category, "topics.jsonl")
 
     if not os.path.exists(batch_id_path):
         print(f"Batch ID file not found at {batch_id_path}")
