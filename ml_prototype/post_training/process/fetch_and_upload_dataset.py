@@ -4,7 +4,7 @@ Script to fetch the first X records from the big-reasoning-traces dataset
 and upload them to a specified Hugging Face profile.
 
 Usage:
-    python fetch_and_upload_dataset.py --num_records 100000 --hf_username tech-tao --dataset_name my-reasoning-traces-100k --config_name DeepSeek
+    python fetch_and_upload_dataset.py --num_records 10000 --hf_username tech-tao --dataset_name my-reasoning-traces-10k --config_name DeepSeek
 """
 
 import argparse
@@ -17,6 +17,43 @@ import os
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+SYSTEM_PROMPT = """
+You are a thoughtful assistant that can conduct reasoning tasks.
+You will be given a question and you would need to reason step by step to answer the question.
+Place your reasoning between the <thinking> and </thinking> tags.
+Then provide your final answer between the <answer> and </answer> tags.
+"""
+
+
+def inject_system_prompt(
+    records: list[dict],
+    prompt: str = SYSTEM_PROMPT,
+    message_field: str = "message"
+) -> list[dict]:
+    """
+    Inject a system prompt as a message with role 'system' at the beginning of each record's message field.
+    If the message field is a string, convert it to a list of messages.
+    Args:
+        records: List of dataset records (dicts)
+        prompt: System prompt to inject
+        message_field: Field name to inject prompt into
+    Returns:
+        List of modified records
+    """
+    for record in records:
+        if message_field in record:
+            # If message is a string, convert to list
+            if isinstance(record[message_field], str):
+                record[message_field] = [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": record[message_field]}
+                ]
+            elif isinstance(record[message_field], list):
+                # Insert system prompt at the beginning if not already present
+                if not (record[message_field] and record[message_field][0].get("role") == "system"):
+                    record[message_field].insert(0, {"role": "system", "content": prompt})
+    return records
 
 
 def fetch_dataset_sample(
@@ -62,6 +99,9 @@ def fetch_dataset_sample(
                 logger.info(f"Fetched {i + 1} records...")
         
         logger.info(f"Successfully fetched {len(records)} records")
+        
+        # Inject system prompt into each record's message field
+        records = inject_system_prompt(records)
         
         # Convert to regular Dataset (non-streaming)
         return Dataset.from_list(records)
