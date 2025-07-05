@@ -1,31 +1,30 @@
 # Config for multi-device full finetuning in full_finetune_distributed.py
-# using a Llama3.2 1B Instruct model
+# using a Llama3.2 3B Instruct model
 #
 # This config assumes that you've run the following command before launching
 # this run:
-#   tune download meta-llama/Llama-3.2-1B-Instruct --output-dir /tmp/Llama-3.2-1B-Instruct --ignore-patterns "original/consolidated.00.pth"
+#   tune download meta-llama/Llama-3.2-3B-Instruct --output-dir /tmp/Llama-3.2-3B-Instruct --ignore-patterns "original/consolidated.00.pth"
 #
 # To launch on 4 devices, run the following command from root:
-#   tune run --nproc_per_node 2 full_finetune_distributed --config llama3_2/1B_full
+#   tune run --nproc_per_node 2 full_finetune_distributed --config llama3_2/3B_full_distributed
 #
 # You can add specific overrides through the command line. For example
 # to override the checkpointer directory while launching training
 # you can run:
-#   tune run --nproc_per_node 4 full_finetune_distributed --config llama3_2/1B_full checkpointer.checkpoint_dir=<YOUR_CHECKPOINT_DIR>
+#   tune run --nproc_per_node 4 full_finetune_distributed --config llama3_2/3B_full_distributed checkpointer.checkpoint_dir=<YOUR_CHECKPOINT_DIR>
 #
 # This config works best when the model is being fine-tuned on 2+ GPUs.
 # Single device full finetuning requires more memory optimizations. It's
-# best to use 1B_full_single_device.yaml for those cases
+# best to use 3B_full_single_device.yaml for those cases
 
-
+post-train-type: sft
 name: reasoning
-
-output_dir: /workspace/models/Llama-3.2-1B-Instruct-${name}
+output_dir: /workspace/models/Llama-3.2-3B-Instruct-${post-train-type}-${name}-distributed
 
 # Tokenizer
 tokenizer:
   _component_: torchtune.models.llama3.llama3_tokenizer
-  path:  /workspace/models/Llama-3.2-1B-Instruct/original/tokenizer.model
+  path: /workspace/models/Llama-3.2-3B-Instruct/original/tokenizer.model
   max_seq_len: 8192
 
 # Dataset and Sampler
@@ -33,10 +32,10 @@ dataset:
   _component_: torchtune.datasets.chat_dataset
   conversation_column: messages
   conversation_style: openai
-  source: tech-tao/my-reasoning-traces-200k
+  source: tech-tao/my-reasoning-traces-50k
 seed: null
 shuffle: True
-batch_size: 2
+batch_size: 1
 
 # Validation
 run_val_every_n_steps: null  # Change to an integer to enable validation every N steps
@@ -45,30 +44,51 @@ dataset_val:
   split: train[95%:]
 batch_size_val: ${batch_size}
 
+# # Dataset and Sampler
+# dataset:
+#   _component_: torchtune.datasets.chat_dataset
+#   conversation_column: messages
+#   conversation_style: openai
+#   source: tech-tao/${name}_${key-name}_${post-train-type}_data
+# seed: null
+# shuffle: True
+# batch_size: 4  # Smaller batch size for distributed training
+
+# # Validation
+# run_val_every_n_steps: null  # Change to an integer to enable validation every N steps
+# dataset_val:
+#   _component_: torchtune.datasets.chat_dataset
+#   conversation_column: messages
+#   conversation_style: openai
+#   source: tech-tao/${name}_${key-name}_${post-train-type}_data
+#   split: train[95%:]
+# batch_size_val: ${batch_size}
+
 # Model Arguments
 model:
-  _component_: torchtune.models.llama3_2.llama3_2_1b
+  _component_: torchtune.models.llama3_2.llama3_2_3b
 
 checkpointer:
   _component_: torchtune.training.FullModelHFCheckpointer
-  checkpoint_dir: /workspace/models/Llama-3.2-1B-Instruct
+  checkpoint_dir: /workspace/models/Llama-3.2-3B-Instruct
   checkpoint_files: [
-    model.safetensors
+    model-00001-of-00002.safetensors,
+    model-00002-of-00002.safetensors,
   ]
   recipe_checkpoint: null
   output_dir: ${output_dir}
   model_type: LLAMA3_2
 resume_from_checkpoint: False
 
+# Fine-tuning arguments
+epochs: 1
 optimizer:
   _component_: torch.optim.AdamW
-  lr: 2e-5
   fused: True
+  lr: 2e-5
+  weight_decay: 0.002
 loss:
   _component_: torch.nn.CrossEntropyLoss
-
-# Training
-epochs: 1
 max_steps_per_epoch: null
 gradient_accumulation_steps: 16  # Use to increase effective batch size
 
@@ -86,12 +106,11 @@ optimizer_in_bwd: False  # True saves memory. Requires gradient_accumulation_ste
 # Logging
 metric_logger:
   _component_: torchtune.training.metric_logging.WandBLogger
-  project: sft-${name}
-  name: llama-3.2-1b-sft-${name}
+  project: ${post-train-type}-${name}-distributed
+  name: llama-3.2-3b-${post-train-type}-${name}-distributed
 log_every_n_steps: 1
 log_peak_memory_stats: True
 log_level: INFO  # DEBUG, WARN, etc.
-
 
 # Profiler (disabled)
 profiler:
@@ -116,4 +135,4 @@ profiler:
   wait_steps: 5
   warmup_steps: 3
   active_steps: 2
-  num_cycles: 1
+  num_cycles: 1 
