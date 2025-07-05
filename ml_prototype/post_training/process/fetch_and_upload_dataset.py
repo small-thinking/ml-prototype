@@ -29,7 +29,7 @@ Then provide your final answer between the <answer> and </answer> tags.
 def inject_system_prompt(
     records: list[dict],
     prompt: str = SYSTEM_PROMPT,
-    message_field: str = "message"
+    message_field: str = "messages"
 ) -> list[dict]:
     """
     Inject a system prompt as a message with role 'system' at the beginning of each record's message field.

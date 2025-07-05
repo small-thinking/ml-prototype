@@ -1,7 +1,0 @@
-wandb
-bitsandbytes
-torchao
-torchdata
-torchtune
-lm_eval
-ipython 
