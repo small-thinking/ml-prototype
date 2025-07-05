@@ -4,11 +4,12 @@ Script to fetch the first X records from the big-reasoning-traces dataset
 and upload them to a specified Hugging Face profile.
 
 Usage:
-    python fetch_and_upload_dataset.py --num_records 10000 --hf_username tech-tao --dataset_name my-reasoning-traces-10k --config_name DeepSeek
+    python fetch_and_upload_dataset.py --num_records 50000 --hf_username tech-tao --dataset_name my-reasoning-traces-50k --config_name DeepSeek
 """
 
 import argparse
 import logging
+import re
 from typing import Optional, Dict, Any
 from datasets import load_dataset, Dataset
 from huggingface_hub import HfApi, login
@@ -18,41 +19,54 @@ import os
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """
-You are a thoughtful assistant that can conduct reasoning tasks.
-You will be given a question and you would need to reason step by step to answer the question.
-Place your reasoning between the <thinking> and </thinking> tags.
-Then provide your final answer between the <answer> and </answer> tags.
-"""
+
+def extract_thinking_and_answer(content: str) -> tuple[str, str]:
+    """
+    Extract thinking and answer sections from content that contains <thinking> and <answer> tags.
+    
+    Args:
+        content: String containing <thinking> and <answer> tags
+        
+    Returns:
+        tuple: (thinking_content, answer_content) - extracted content without tags
+    """
+    # Extract thinking section
+    thinking_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
+    thinking_content = thinking_match.group(1).strip() if thinking_match else ""
+    
+    # Extract answer section
+    answer_match = re.search(r'<answer>(.*?)</answer>', content, re.DOTALL)
+    answer_content = answer_match.group(1).strip() if answer_match else ""
+    
+    return thinking_content, answer_content
 
 
-def inject_system_prompt(
+def transform_to_gsm8k_format(
     records: list[dict],
-    prompt: str = SYSTEM_PROMPT,
-    message_field: str = "messages"
+    response_field: str = "response"
 ) -> list[dict]:
     """
-    Inject a system prompt as a message with role 'system' at the beginning of each record's message field.
-    If the message field is a string, convert it to a list of messages.
+    Transform records from <think>/<answer> tag format to GSM8K format.
+    Extracts thinking and answer sections from the response field, then concatenates them with #### separator.
+    
     Args:
         records: List of dataset records (dicts)
-        prompt: System prompt to inject
-        message_field: Field name to inject prompt into
+        response_field: Field name containing the response string
+        
     Returns:
-        List of modified records
+        List of modified records with GSM8K format
     """
     for record in records:
-        if message_field in record:
-            # If message is a string, convert to list
-            if isinstance(record[message_field], str):
-                record[message_field] = [
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": record[message_field]}
-                ]
-            elif isinstance(record[message_field], list):
-                # Insert system prompt at the beginning if not already present
-                if not (record[message_field] and record[message_field][0].get("role") == "system"):
-                    record[message_field].insert(0, {"role": "system", "content": prompt})
+        if response_field in record:
+            response = record[response_field]
+            
+            # Extract thinking and answer from the response string
+            thinking_content, answer_content = extract_thinking_and_answer(response)
+            if thinking_content and answer_content:
+                # Transform to GSM8K format: thinking + #### + answer
+                transformed_response = f"{thinking_content}\n\n#### {answer_content}"
+                record[response_field] = transformed_response
+    
     return records
 
 
@@ -100,8 +114,8 @@ def fetch_dataset_sample(
         
         logger.info(f"Successfully fetched {len(records)} records")
         
-        # Inject system prompt into each record's message field
-        records = inject_system_prompt(records)
+        # Transform records to GSM8K format
+        records = transform_to_gsm8k_format(records)
         
         # Convert to regular Dataset (non-streaming)
         return Dataset.from_list(records)
@@ -153,7 +167,7 @@ def upload_to_hf(
         dataset.push_to_hub(
             full_dataset_name,
             private=private,
-            commit_message=f"Upload {len(dataset)} records from big-reasoning-traces"
+            commit_message=f"Upload {len(dataset)} records from big-reasoning-traces in GSM8K format"
         )
         
         dataset_url = f"https://huggingface.co/datasets/{full_dataset_name}"
