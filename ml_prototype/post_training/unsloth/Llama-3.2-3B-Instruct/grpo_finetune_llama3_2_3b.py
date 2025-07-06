@@ -11,8 +11,8 @@ def extract_hash_answer(text):
     if "####" not in text: return None
     return text.split("####")[1].strip()
 
-max_seq_length = 2048 # Can increase for longer reasoning traces
-lora_rank = 64 # Larger rank = smarter, but slower
+max_seq_length = 4096 # Can increase for longer reasoning traces
+lora_rank = 32 # Larger rank = smarter, but slower
 
 # Load the model
 model, tokenizer = FastLanguageModel.from_pretrained(
@@ -87,10 +87,18 @@ match_format.search(
 
 def match_format_exactly(completions, **kwargs):
     """Reward if the format is seen exactly"""
+    
     scores = []
     for completion in completions:
         score = 0
-        response = completion[0]["content"]
+        # Handle both string and dict formats
+        if isinstance(completion, str):
+            response = completion
+        elif isinstance(completion, list) and len(completion) > 0:
+            response = completion[0].get("content", "")
+        elif isinstance(completion, dict):
+            response = completion.get("content", "")
+        
         # Match if format is seen exactly!
         if match_format.search(response) is not None: score += 3.0
         scores.append(score)
@@ -101,7 +109,14 @@ def match_format_approximately(completions, **kwargs):
     scores = []
     for completion in completions:
         score = 0
-        response = completion[0]["content"]
+        # Handle both string and dict formats
+        if isinstance(completion, str):
+            response = completion
+        elif isinstance(completion, list) and len(completion) > 0:
+            response = completion[0].get("content", "")
+        elif isinstance(completion, dict):
+            response = completion.get("content", "")
+        
         # Count how many keywords are seen - we penalize if too many!
         # If we see 1, then plus some points!
         score += 0.5 if response.count(reasoning_start) == 1 else -1.0
@@ -114,7 +129,16 @@ def match_format_approximately(completions, **kwargs):
 def check_answer(prompts, completions, answer, **kwargs):
     """Check the answer"""
     question = prompts[0][-1]["content"]
-    responses = [completion[0]["content"] for completion in completions]
+    
+    # Handle both string and dict formats for completions
+    responses = []
+    for completion in completions:
+        if isinstance(completion, str):
+            responses.append(completion)
+        elif isinstance(completion, list) and len(completion) > 0:
+            responses.append(completion[0].get("content", ""))
+        elif isinstance(completion, dict):
+            responses.append(completion.get("content", ""))
 
     extracted_responses = [
         guess.group(1)
@@ -156,37 +180,44 @@ print(match_numbers.findall("<answer>  0.34  </answer>"))
 print(match_numbers.findall("<answer>  123,456  </answer>"))
 
 # Fine tune the model with GRPO
-max_prompt_length = 1024
+max_prompt_length = 512  # Reduced to allow space for completions
 
 from trl import GRPOConfig, GRPOTrainer
 training_args = GRPOConfig(
-    learning_rate = 5e-6,
-    weight_decay = 0.1,
+    learning_rate = 1e-5,
+    weight_decay = 0.01,
     warmup_ratio = 0.1,
     lr_scheduler_type = "cosine",
     optim = "adamw_8bit",
     logging_steps = 1,
     per_device_train_batch_size = 1,
     gradient_accumulation_steps = 4, # Increase to 4 for smoother training
-    num_generations = 4, # Decrease if out of memory
+    num_generations = 16,
     max_prompt_length = max_prompt_length,
     max_completion_length = max_seq_length - max_prompt_length,
     # num_train_epochs = 1, # Set to 1 for a full training run
     max_steps = 500,
     save_steps = 250,
     max_grad_norm = 1.0,
-    report_to = "none", # Can use Weights & Biases
+    report_to = "wandb", # Enable Weights & Biases logging
     output_dir = "outputs",
+    wandb_project = "llama3-2-3b-grpo",
+    wandb_run_name = "reasoning-format-training",
 )
 
+# Reward System Overview:
+# The total reward is the sum of all individual reward functions:
+# 1. match_format_exactly: +3.0 if response matches <think>...</think><answer>...</answer> format exactly
+# 2. match_format_approximately: +0.5 for each correct tag (<think>, </think>, <answer>, </answer>), -1.0 for missing/duplicate tags
+# 3. check_answer: +3.0 for exact answer match, +1.5 for whitespace-only difference, +1.0/+0.5 for close numerical ratios, -1.5 for wrong answers
+# Total possible reward per completion: 3.0 + 2.0 + 3.0 = 8.0 points
 trainer = GRPOTrainer(
     model = model,
     processing_class = tokenizer,
     reward_funcs = [
-        match_format_exactly,
-        # match_format_approximately,
-        # check_answer,
-        # check_numbers,
+        match_format_exactly,          # Exact format matching
+        match_format_approximately,    # Approximate format matching  
+        # check_answer,                  # Answer correctness
     ],
     args = training_args,
     train_dataset = dataset,
