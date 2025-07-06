@@ -21,7 +21,7 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     load_in_4bit = False, # False for LoRA 16bit
     fast_inference = False, # Enable vLLM fast inference
     max_lora_rank = lora_rank,
-    gpu_memory_utilization = 0.6, # Reduce if out of memory
+    gpu_memory_utilization = 0.9, # Increase if you have enough memory
 )
 
 model = FastLanguageModel.get_peft_model(
@@ -32,7 +32,7 @@ model = FastLanguageModel.get_peft_model(
         "gate_proj", "up_proj", "down_proj",
     ], # Remove QKVO if out of memory
     lora_alpha = lora_rank,
-    use_gradient_checkpointing = "unsloth", # Enable long context finetuning
+    use_gradient_checkpointing = False, # Disable for faster training if enough memory
     random_state = 3407,
 )
 
@@ -188,10 +188,10 @@ training_args = GRPOConfig(
     weight_decay = 0.01,
     warmup_ratio = 0.1,
     lr_scheduler_type = "cosine",
-    optim = "adamw_8bit",
+    optim = "adamw_torch", # Use full precision optimizer for speed
     logging_steps = 1,
-    per_device_train_batch_size = 1,
-    gradient_accumulation_steps = 4, # Increase to 4 for smoother training
+    per_device_train_batch_size = 2, # Increase batch size if memory allows
+    gradient_accumulation_steps = 4, # Reduce since we increased batch size
     num_generations = 16,
     max_prompt_length = max_prompt_length,
     max_completion_length = max_seq_length - max_prompt_length,
@@ -203,6 +203,8 @@ training_args = GRPOConfig(
     output_dir = "outputs",
     wandb_project = "llama3-2-3b-grpo",
     wandb_run_name = "reasoning-format-training",
+    # Memory optimization settings (disable for speed)
+    dataloader_pin_memory = True, # Keep data in pinned memory
 )
 
 # Reward System Overview:
