@@ -174,7 +174,7 @@ poetry.lock
 
 # Weights & Biases
 dummy_model/*
-wandb/*
+**/wandb/*
 
 # Data
 data/*
@@ -199,3 +199,9 @@ test.py
 
 # Wandb
 **/wandb/*
+
+# Unsloth
+**/unsloth_cache/*
+**/outputs/*
+**/unsloth_cache/*
+**/unsloth_compiled_cache/*

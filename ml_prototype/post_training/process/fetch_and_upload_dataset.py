@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
 Script to fetch the first X records from the big-reasoning-traces dataset
-and upload them to a specified Hugging Face profile.
+and upload them to a specified Hugging Face profile in preference format.
+
+The script transforms the original <think>/<answer> format into preference pairs in OpenAI conversation format:
+- chosen: [{"role": "user", "content": "<prompt>"}, {"role": "assistant", "content": "<full_response_with_thinking>"}]
+- rejected: [{"role": "user", "content": "<prompt>"}, {"role": "assistant", "content": "<answer_only>"}]
 
 Usage:
-    python fetch_and_upload_dataset.py --num_records 50000 --hf_username tech-tao --dataset_name my-reasoning-traces-50k --config_name DeepSeek
+    python fetch_and_upload_dataset.py --num_records 10000 --hf_username tech-tao --dataset_name dpo-reasoning-traces-10k --config_name DeepSeek
 """
 
 import argparse
@@ -41,33 +45,60 @@ def extract_thinking_and_answer(content: str) -> tuple[str, str]:
     return thinking_content, answer_content
 
 
-def transform_to_gsm8k_format(
+def transform_to_preference_format(
     records: list[dict],
-    response_field: str = "response"
+    response_field: str = "response",
+    prompt_field: str = "prompt"
 ) -> list[dict]:
     """
-    Transform records from <think>/<answer> tag format to GSM8K format.
-    Extracts thinking and answer sections from the response field, then concatenates them with #### separator.
+    Transform records from <think>/<answer> tag format to preference dataset format.
+    Creates chosen and rejected responses in OpenAI conversation format.
     
     Args:
         records: List of dataset records (dicts)
         response_field: Field name containing the response string
+        prompt_field: Field name containing the prompt string
         
     Returns:
-        List of modified records with GSM8K format
+        List of modified records with preference format (chosen, rejected fields)
     """
+    preference_records = []
+    
     for record in records:
-        if response_field in record:
+        if response_field in record and prompt_field in record:
             response = record[response_field]
+            prompt = record[prompt_field]
             
             # Extract thinking and answer from the response string
             thinking_content, answer_content = extract_thinking_and_answer(response)
             if thinking_content and answer_content:
-                # Transform to GSM8K format: thinking + #### + answer
-                transformed_response = f"{thinking_content}\n\n#### {answer_content}"
-                record[response_field] = transformed_response
+                # Create OpenAI conversation format
+                # Chosen: full original response (thinking + answer)
+                # Rejected: only the answer part
+                chosen_conversation = [
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": response}
+                ]
+                
+                rejected_conversation = [
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": answer_content}
+                ]
+                
+                # Create new record with preference format
+                preference_record = {
+                    "chosen": chosen_conversation,
+                    "rejected": rejected_conversation
+                }
+                
+                # Copy other fields from original record (excluding prompt and response)
+                for key, value in record.items():
+                    if key not in [response_field, prompt_field]:
+                        preference_record[key] = value
+                
+                preference_records.append(preference_record)
     
-    return records
+    return preference_records
 
 
 def fetch_dataset_sample(
@@ -114,8 +145,8 @@ def fetch_dataset_sample(
         
         logger.info(f"Successfully fetched {len(records)} records")
         
-        # Transform records to GSM8K format
-        records = transform_to_gsm8k_format(records)
+        # Transform records to preference format
+        records = transform_to_preference_format(records, prompt_field="prompt")
         
         # Convert to regular Dataset (non-streaming)
         return Dataset.from_list(records)
@@ -167,7 +198,7 @@ def upload_to_hf(
         dataset.push_to_hub(
             full_dataset_name,
             private=private,
-            commit_message=f"Upload {len(dataset)} records from big-reasoning-traces in GSM8K format"
+            commit_message=f"Upload {len(dataset)} records from big-reasoning-traces in preference format (chosen/rejected)"
         )
         
         dataset_url = f"https://huggingface.co/datasets/{full_dataset_name}"
