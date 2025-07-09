@@ -7,7 +7,7 @@ For logiqa-zh: concatenates context, query, and options into one string as promp
 and uses the correct option as completion
 
 Usage:
-    python merge_logiqa_jeopardy.py --hf_username tech-tao --dataset_name merged-logiqa-jeopardy --jeopardy_sample_ratio 0.2
+    python merge_logiqa_jeopardy.py --hf_username tech-tao --dataset_name mini-reasoning-dataset --jeopardy_sample_ratio 0.2
 """
 
 import argparse
