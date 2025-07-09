@@ -107,9 +107,9 @@ def penalize_short_think_func(completions, **kwargs):
             
             # Gradual penalty for short thinking (under 200 characters)
             if content_length < 200:
-                # Linear penalty: 0 at 200 chars, -5.0 at 0 chars
+                # Linear penalty: 0 at 200 chars, -10.0 at 0 chars
                 penalty_ratio = (200 - content_length) / 200
-                score -= 5.0 * penalty_ratio  # Gradual penalty from 0 to -5.0
+                score -= 10.0 * penalty_ratio  # Gradual penalty from 0 to -10.0
         else:
             # No thinking section at all - already penalized by format function
             pass
