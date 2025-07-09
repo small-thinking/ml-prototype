@@ -182,7 +182,7 @@ training_args = GRPOConfig(
     gradient_accumulation_steps=8,
     num_generations=16,
     max_prompt_length=1024,
-    max_steps=500,
+    max_steps=1000,
     report_to="wandb",
     run_name="llama-3.2-3b-instruct-grpo"
 )
