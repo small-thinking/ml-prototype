@@ -68,7 +68,9 @@ def match_format_func(completions, **kwargs):
         penalty = 0
         # ===== FORMAT COMPLIANCE CHECKING =====
         if match_format.search(completion) is not None:
-            pass  # Format is perfect - no penalty
+            # Format is perfect - no penalty, skip all other checks
+            scores.append(penalty)
+            continue
         else:
             # 1. Missing or incorrect tags
             penalty -= 1.0 if completion.count(reasoning_start) != 1 else 0
@@ -155,6 +157,26 @@ def check_answer_func(completions, ground_truth, **kwargs):
         print_reason = "❌ No answer tags found (-1.0 penalty)"
     
     if should_print:
+        # Calculate individual function scores for debugging
+        format_score = match_format_func([first_completion])[0]
+        think_score = penalize_short_think_func([first_completion])[0]
+        
+        # Calculate answer score manually to avoid recursion
+        answer_score = 0
+        answer_match_debug = re.search(rf"{answer_start}\s*(.+?)\s*{answer_end}", first_completion, flags=re.DOTALL)
+        if answer_match_debug is None:
+            answer_score = -1.0
+        else:
+            answer = answer_match_debug.group(1).strip()
+            if answer.lower() == ground_truth[0].lower():
+                answer_score = 8.0
+            elif ground_truth[0].lower() in answer.lower():
+                answer_score = 3.0
+            else:
+                answer_score = -1.0
+        
+        total_score = format_score + think_score + answer_score
+        
         debug_output = []
         debug_output.append("\n" + "="*60)
         debug_output.append(f"SPOT CHECK: PROMPT AND COMPLETIONS (Step: {step_counter})")
@@ -165,6 +187,11 @@ def check_answer_func(completions, ground_truth, **kwargs):
         if answer_match:
             debug_output.append(f"==Extracted Answer: '{extracted_answer}'\n")
         debug_output.append(f"{print_reason}")
+        debug_output.append(f"==SCORE BREAKDOWN:==")
+        debug_output.append(f"  Format score: {format_score}")
+        debug_output.append(f"  Think score: {think_score}")
+        debug_output.append(f"  Answer score: {answer_score}")
+        debug_output.append(f"  TOTAL SCORE: {total_score}")
         debug_output.append("="*60 + "\n")
         
         # Print to console
@@ -205,11 +232,11 @@ training_args = GRPOConfig(
     warmup_ratio=0.1,
     lr_scheduler_type="cosine",
     logging_steps=1,
-    per_device_train_batch_size=4,
-    gradient_accumulation_steps=8,
+    per_device_train_batch_size=16,
+    gradient_accumulation_steps=4,
     num_generations=8,
     max_prompt_length=1024,
-    max_steps=2000,
+    max_steps=1000,
     report_to="wandb",
     run_name=f"{model_name}-GRPO"
 )
