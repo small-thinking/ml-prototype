@@ -117,14 +117,13 @@ def penalize_short_think_func(completions, **kwargs):
         think_match = re.search(rf"{reasoning_start}(.+?){reasoning_end}", completion, flags=re.DOTALL)
         if think_match:
             think_content = think_match.group(1).strip()
-            content_length = len(think_content)
-            # Gradual penalty for short thinking (under 200 characters)
-            if content_length < 200:
-                penalty_ratio = (200 - content_length) / 200
-                score -= 10.0 * penalty_ratio  # Gradual penalty from 0 to -10.0
         else:
-            pass  # No thinking section at all - already penalized by format function
-            
+            think_content = completion
+        content_length = len(think_content)
+        # Gradual penalty for short thinking (under 200 characters)
+        if content_length < 200:
+            penalty_ratio = (200 - content_length) / 200
+            score -= 10.0 * penalty_ratio  # Gradual penalty from 0 to -10.0
         scores.append(score)
     return scores
 
@@ -158,24 +157,24 @@ def check_answer_func(completions, ground_truth, **kwargs):
     
     if should_print:
         # Calculate individual function scores for debugging
-        format_score = match_format_func([first_completion])[0]
-        think_score = penalize_short_think_func([first_completion])[0]
+        format_reward = match_format_func([first_completion])[0]
+        think_reward = penalize_short_think_func([first_completion])[0]
         
         # Calculate answer score manually to avoid recursion
-        answer_score = 0
+        answer_reward = 0
         answer_match_debug = re.search(rf"{answer_start}\s*(.+?)\s*{answer_end}", first_completion, flags=re.DOTALL)
         if answer_match_debug is None:
-            answer_score = -1.0
+            answer_reward = -1.0
         else:
             answer = answer_match_debug.group(1).strip()
             if answer.lower() == ground_truth[0].lower():
-                answer_score = 8.0
+                answer_reward = 8.0
             elif ground_truth[0].lower() in answer.lower():
-                answer_score = 3.0
+                answer_reward = 3.0
             else:
-                answer_score = -1.0
+                answer_reward = -3.0
         
-        total_score = format_score + think_score + answer_score
+        total_reward = format_reward + think_reward + answer_reward
         
         debug_output = []
         debug_output.append("\n" + "="*60)
@@ -188,10 +187,10 @@ def check_answer_func(completions, ground_truth, **kwargs):
             debug_output.append(f"==Extracted Answer: '{extracted_answer}'\n")
         debug_output.append(f"{print_reason}")
         debug_output.append(f"==SCORE BREAKDOWN:==")
-        debug_output.append(f"  Format score: {format_score}")
-        debug_output.append(f"  Think score: {think_score}")
-        debug_output.append(f"  Answer score: {answer_score}")
-        debug_output.append(f"  TOTAL SCORE: {total_score}")
+        debug_output.append(f"  Format reward: {format_reward}")
+        debug_output.append(f"  Think reward: {think_reward}")
+        debug_output.append(f"  Answer reward: {answer_reward}")
+        debug_output.append(f"  TOTAL REWARD: {total_reward}")
         debug_output.append("="*60 + "\n")
         
         # Print to console
