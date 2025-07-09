@@ -56,7 +56,7 @@ def process_logiqa_dataset(
             
             # Concatenate context, query, and options into prompt
             options_text = "\n".join([f"{i+1}. {option}" for i, option in enumerate(options)])
-            prompt = f"Context: {context}\n\nQuestion: {query}\n\nOptions:\n{options_text}\n\nPlease select the correct option."
+            prompt = f"{context}\n\n问题: {query}\n\n选项:\n{options_text}\n\n请选择正确的选项。"
             
             # Get the correct option as completion
             completion = options[correct_option_idx]
@@ -127,16 +127,14 @@ def process_jeopardy_dataset(
             """Format a single jeopardy example into prompt/completion format."""
             question = example["question"]
             answer = example["answer"]
-            category = example["category"]
             
             # Create prompt with category context
-            prompt = f"Category: {category}\n\nQuestion: {question}"
+            prompt = f"Question: {question}"
             
             return {
                 "prompt": prompt,
                 "completion": answer,
                 "source": "jeopardy",
-                "category": category,
                 "value": example.get("value", None)
             }
         
