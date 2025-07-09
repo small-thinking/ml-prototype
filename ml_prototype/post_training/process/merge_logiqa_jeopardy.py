@@ -129,7 +129,7 @@ def process_jeopardy_dataset(
             answer = example["answer"]
             
             # Create prompt with category context
-            prompt = f"Question: {question}"
+            prompt = f"Question/Puzzle: {question}"
             
             return {
                 "prompt": prompt,
