@@ -1,7 +1,23 @@
 from datasets import load_dataset
 from trl import GRPOConfig, GRPOTrainer
 import re
+import random
+import os
+from datetime import datetime
 
+model_size = "0.5B"
+
+if model_size == "8B":
+    model_name = "meta-llama/Llama-3.1-8B-Instruct"
+elif model_size == "3B":
+    model_name = "meta-llama/Llama-3.2-3B-Instruct"
+elif model_size == "0.5B":
+    model_name = "Qwen/Qwen2-0.5B-Instruct"
+elif model_size == "1.5B":
+    model_name = "Qwen/Qwen2-1.5B-Instruct"
+
+else:
+    raise ValueError(f"Invalid model size: {model_size}")
 
 # tech-tao/mini-reasoning-dataset dataset
 dataset = load_dataset("tech-tao/mini-reasoning-dataset", split="train")
@@ -28,27 +44,32 @@ reasoning_end = "</think>"
 answer_start = "<answer>"
 answer_end = "</answer>"
 
-match_format = re.compile(
-    rf"^[\s]{{0,}}"\
-    rf"{reasoning_start}.+?{reasoning_end}.*?"\
-    rf"{answer_start}(.+?){answer_end}"\
-    rf"[\s]{{0,}}$",
-    flags = re.MULTILINE | re.DOTALL
-)
+# Setup logging file (moved outside function to avoid recreation on each call)
+log_dir = "debug_logs"
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, f"grpo_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+
+# Global step counter
+step_counter = 0
+
 
 def match_format_func(completions, **kwargs):
     """Format penalty function: perfect format gets 0, violations get penalties"""
     scores = []
+    # regex for matching the format like this: <think>content</think><answer>content</answer>
+    match_format = re.compile(
+        rf"^[\s]{{0,}}"\
+        rf"{reasoning_start}.*?{reasoning_end}"\
+        rf"{answer_start}.*?{answer_end}"\
+        rf"[\s]{{0,}}$",
+        flags = re.MULTILINE | re.DOTALL
+    )
     for completion in completions:
         penalty = 0
-        
         # ===== FORMAT COMPLIANCE CHECKING =====
-        # Perfect format gets no penalty
         if match_format.search(completion) is not None:
-            # Format is perfect - no penalty
-            pass
+            pass  # Format is perfect - no penalty
         else:
-            # ===== FORMAT VIOLATION PENALTIES =====
             # 1. Missing or incorrect tags
             penalty -= 1.0 if completion.count(reasoning_start) != 1 else 0
             penalty -= 1.0 if completion.count(reasoning_end) != 1 else 0
@@ -90,21 +111,17 @@ def penalize_short_think_func(completions, **kwargs):
     scores = []
     for completion in completions:
         score = 0
-        
         # Extract thinking content
         think_match = re.search(rf"{reasoning_start}(.+?){reasoning_end}", completion, flags=re.DOTALL)
         if think_match:
             think_content = think_match.group(1).strip()
             content_length = len(think_content)
-            
             # Gradual penalty for short thinking (under 200 characters)
             if content_length < 200:
-                # Linear penalty: 0 at 200 chars, -10.0 at 0 chars
                 penalty_ratio = (200 - content_length) / 200
                 score -= 10.0 * penalty_ratio  # Gradual penalty from 0 to -10.0
         else:
-            # No thinking section at all - already penalized by format function
-            pass
+            pass  # No thinking section at all - already penalized by format function
             
         scores.append(score)
     return scores
@@ -112,14 +129,14 @@ def penalize_short_think_func(completions, **kwargs):
 
 def check_answer_func(completions, ground_truth, **kwargs):
     """Reward if the answer is correct with partial matching for knowledge-based scoring"""
+    global step_counter
+    step_counter += 1
+    
     scores = []
     
     # Always print when there's a full score, occasionally print other cases
-    import random
     should_print = False
     print_reason = ""
-    
-    # Check first completion for full score
     first_completion = completions[0]
     answer_match = re.search(rf"{answer_start}\s*(.+?)\s*{answer_end}", first_completion, flags=re.DOTALL)
     if answer_match:
@@ -135,19 +152,29 @@ def check_answer_func(completions, ground_truth, **kwargs):
                 print_reason = "❌ WRONG ANSWER (-1.0) - No match"
     elif random.random() < 0.1:  # 10% chance for no tags case
         should_print = True
-        print_reason = "==No answer tags found (-1.0 penalty)=="
+        print_reason = "❌ No answer tags found (-1.0 penalty)"
     
     if should_print:
-        print("\n" + "="*60)
-        print("DEBUG: PROMPT AND COMPLETIONS")
-        print("="*60)
-        print(f"==Prompt:==\n {index[ground_truth[0]]}\n")
-        print(f"==Completion:==\n {first_completion}\n")
-        print(f"==Ground Truth:==\n {ground_truth[0] if ground_truth else 'N/A'}")
+        debug_output = []
+        debug_output.append("\n" + "="*60)
+        debug_output.append(f"SPOT CHECK: PROMPT AND COMPLETIONS (Step: {step_counter})")
+        debug_output.append("="*60)
+        debug_output.append(f"==Prompt:==\n {index[ground_truth[0]]}\n")
+        debug_output.append(f"==Completion:==\n {first_completion}\n")
+        debug_output.append(f"==Ground Truth:==\n {ground_truth[0] if ground_truth else 'N/A'}")
         if answer_match:
-            print(f"==Extracted Answer: '{extracted_answer}'\n")
-        print(f"{print_reason}")
-        print("="*60 + "\n")
+            debug_output.append(f"==Extracted Answer: '{extracted_answer}'\n")
+        debug_output.append(f"{print_reason}")
+        debug_output.append("="*60 + "\n")
+        
+        # Print to console
+        for line in debug_output:
+            print(line)
+        
+        # Write to file
+        with open(log_file, 'a', encoding='utf-8') as f:
+            f.write('\n'.join(debug_output))
+            f.write('\n')
     
     for completion, ground_truth in zip(completions, ground_truth):
         score = 0
@@ -173,23 +200,25 @@ def check_answer_func(completions, ground_truth, **kwargs):
 
 
 training_args = GRPOConfig(
-    output_dir="Llama-3.2-3B-Instruct-GRPO",
+    output_dir=f"{model_name}-GRPO",
     learning_rate=1e-5,
     warmup_ratio=0.1,
     lr_scheduler_type="cosine",
     logging_steps=1,
     per_device_train_batch_size=4,
     gradient_accumulation_steps=8,
-    num_generations=16,
+    num_generations=8,
     max_prompt_length=1024,
-    max_steps=1000,
+    max_steps=2000,
     report_to="wandb",
-    run_name="llama-3.2-3b-instruct-grpo"
+    run_name=f"{model_name}-GRPO"
 )
+
 trainer = GRPOTrainer(
-    model="meta-llama/Llama-3.2-3B-Instruct",
+    model=model_name,
     reward_funcs=[match_format_func, penalize_short_think_func, check_answer_func],
     args=training_args,
     train_dataset=dataset,
 )
+
 trainer.train()
