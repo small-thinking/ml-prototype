@@ -157,13 +157,14 @@ def merge_datasets(
 ) -> Dataset:
     """
     Merge the two processed datasets into one unified dataset.
+    Only keeps prompt and completion fields.
     
     Args:
         logiqa_dataset: Processed logiqa dataset
         jeopardy_dataset: Processed jeopardy dataset
         
     Returns:
-        Merged dataset
+        Merged dataset with only prompt and completion fields
     """
     logger.info("Merging datasets...")
     
@@ -173,6 +174,13 @@ def merge_datasets(
     logger.info(f"Merged dataset contains {len(merged_dataset)} total examples")
     logger.info(f"  - Logiqa examples: {len(logiqa_dataset)}")
     logger.info(f"  - Jeopardy examples: {len(jeopardy_dataset)}")
+    
+    # Remove all columns except prompt and completion
+    columns_to_remove = [col for col in merged_dataset.column_names if col not in ["prompt", "completion"]]
+    if columns_to_remove:
+        merged_dataset = merged_dataset.remove_columns(columns_to_remove)
+        logger.info(f"Removed columns: {columns_to_remove}")
+    logger.info("Filtered dataset to keep only prompt and completion fields")
     
     return merged_dataset
 
@@ -278,6 +286,17 @@ def main():
         action="store_true",
         help="Skip uploading to Hugging Face (just create the merged dataset locally)"
     )
+    parser.add_argument(
+        "--no_shuffle",
+        action="store_true",
+        help="Do not shuffle the merged dataset (default: shuffle enabled)"
+    )
+    parser.add_argument(
+        "--shuffle_seed",
+        type=int,
+        default=42,
+        help="Random seed for shuffling (default: 42)"
+    )
     
     args = parser.parse_args()
     
@@ -301,11 +320,15 @@ def main():
         # Merge datasets
         merged_dataset = merge_datasets(logiqa_dataset, jeopardy_dataset)
         
+        # Shuffle if not disabled
+        if not args.no_shuffle:
+            merged_dataset = merged_dataset.shuffle(seed=args.shuffle_seed)
+            logger.info(f"Shuffled merged dataset with seed {args.shuffle_seed}")
+        
         # Show some examples
         logger.info("\nExample from merged dataset:")
         logger.info(f"Prompt: {merged_dataset[0]['prompt'][:200]}...")
         logger.info(f"Completion: {merged_dataset[0]['completion']}")
-        logger.info(f"Source: {merged_dataset[0]['source']}")
         
         if not args.no_upload:
             # Upload to Hugging Face
