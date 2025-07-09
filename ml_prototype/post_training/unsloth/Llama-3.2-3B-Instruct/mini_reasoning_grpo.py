@@ -2,27 +2,19 @@ from datasets import load_dataset
 from trl import GRPOConfig, GRPOTrainer
 import re
 
-# # dataset = load_dataset("trl-lib/tldr", split="train")
-# dataset = load_dataset("tech-tao/my-reasoning-traces-10k", "default", split = "train")
-# # process to rename presponse as completions
-# dataset = dataset.rename_column("response", "completion").remove_columns(["text", "messages", "source", "num_tokens"])
 
-# # Change the content of the prompt by adding CoT required format
-# dataset = dataset.map(lambda x: {"prompt": "Answer the following question step by step. Put your thought in <think> tags and your answer in <answer> tags. " + x["prompt"]})
-
-# jeggers/jeopardy dataset
-dataset = load_dataset("jeggers/jeopardy", split="train")
-# dataset = dataset.rename_column("question", "prompt").rename_column("answer", "ground_truth")
+# tech-tao/mini-reasoning-dataset dataset
+dataset = load_dataset("tech-tao/mini-reasoning-dataset", split="train")
 dataset = dataset.map(
     lambda x: {
         "prompt": """
-        The following question is about Jeopardy!
+        The following question requires reasoning.
         In addition to provide your answer, you should also provide your DETAILED thought process about how you arrive at your answer.
         Put your thought in <think>your thought process</think> tags and then put your answer in <answer>your answer</answer> tags.
 
         The question is:
-        """ + x["question"],
-        "ground_truth": x["answer"]
+        """ + x["prompt"],
+        "ground_truth": x["completion"]
     }
 )
 
@@ -181,20 +173,21 @@ def check_answer_func(completions, ground_truth, **kwargs):
 
 
 training_args = GRPOConfig(
-    output_dir="Qwen2-1.5B-GRPO",
+    output_dir="Llama-3.2-3B-Instruct-GRPO",
     learning_rate=1e-5,
-    warmup_ratio=0.1,lr_scheduler_type="cosine",
+    warmup_ratio=0.1,
+    lr_scheduler_type="cosine",
     logging_steps=1,
-    per_device_train_batch_size=16,
+    per_device_train_batch_size=4,
     gradient_accumulation_steps=8,
-    num_generations=32,
+    num_generations=16,
     max_prompt_length=1024,
     max_steps=500,
     report_to="wandb",
-    run_name="qwen-1.5b-grpo"
+    run_name="llama-3.2-3b-instruct-grpo"
 )
 trainer = GRPOTrainer(
-    model="Qwen/Qwen2-1.5B-Instruct",
+    model="meta-llama/Llama-3.2-3B-Instruct",
     reward_funcs=[match_format_func, penalize_short_think_func, check_answer_func],
     args=training_args,
     train_dataset=dataset,
