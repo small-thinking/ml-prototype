@@ -55,7 +55,7 @@ def process_logiqa_dataset(
             correct_option_idx = example["correct_option"]
             
             # Concatenate context, query, and options into prompt
-            options_text = "\n".join([f"{i+1}. {option}" for i, option in enumerate(options)])
+            options_text = "\n".join([f"* {option}" for option in options])
             prompt = f"{context}\n\n问题: {query}\n\n选项:\n{options_text}\n\n请选择正确的选项。"
             
             # Get the correct option as completion
