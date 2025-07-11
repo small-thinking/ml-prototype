@@ -4,8 +4,11 @@ import re
 import random
 import os
 from datetime import datetime
+from peft import LoraConfig
+
 
 model_size = "3B"
+use_lora = False  # Set to False for full fine-tuning
 
 if model_size == "8B":
     model_name = "meta-llama/Llama-3.1-8B-Instruct"
@@ -15,7 +18,6 @@ elif model_size == "0.5B":
     model_name = "Qwen/Qwen2-0.5B-Instruct"
 elif model_size == "1.5B":
     model_name = "Qwen/Qwen2-1.5B-Instruct"
-
 else:
     raise ValueError(f"Invalid model size: {model_size}")
 
@@ -225,8 +227,20 @@ def check_answer_func(completions, ground_truth, **kwargs):
     return scores
 
 
+# LoRA configuration
+lora_config = None
+if use_lora:
+    lora_config = LoraConfig(
+        r=16,  # LoRA rank
+        lora_alpha=32,  # LoRA alpha parameter
+        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],  # Target attention modules
+        lora_dropout=0.01,
+        bias="none",
+        task_type="CAUSAL_LM"
+    )
+
 training_args = GRPOConfig(
-    output_dir=f"{model_name}-GRPO",
+    output_dir=f"{model_name}-{'LoRA' if use_lora else 'Full'}-GRPO",
     learning_rate=1e-6,
     temperature=1.0,
     warmup_ratio=0.1,
@@ -238,7 +252,12 @@ training_args = GRPOConfig(
     max_prompt_length=768,
     max_steps=500,
     report_to="wandb",
-    run_name=f"{model_name}-GRPO"
+    run_name=f"{model_name}-{'LoRA' if use_lora else 'Full'}-GRPO",
+    fp16=True,
+    fp16_full_eval=False,
+    fp16_opt_level="O1",
+    save_strategy="no",  # Don't save intermediate checkpoints
+    save_total_limit=1,  # Keep only the last checkpoint
 )
 
 trainer = GRPOTrainer(
@@ -246,6 +265,7 @@ trainer = GRPOTrainer(
     reward_funcs=[match_format_func, penalize_short_think_func, check_answer_func],
     args=training_args,
     train_dataset=dataset,
+    peft_config=lora_config,  # Pass LoRA config if using LoRA
 )
 
 trainer.train()
