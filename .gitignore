@@ -212,3 +212,4 @@ test.py
 models/
 checkpoints/
 **/debug_logs/*
+**/unsloth/meta-llama/*
