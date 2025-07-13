@@ -1,0 +1,7 @@
+bitsandbytes
+trl
+lm_eval
+torch==2.6.0
+torchao
+vllm
+wandb

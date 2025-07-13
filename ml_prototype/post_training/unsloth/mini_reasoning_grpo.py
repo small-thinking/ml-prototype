@@ -241,7 +241,7 @@ if use_lora:
 
 training_args = GRPOConfig(
     output_dir=f"{model_name}-{'LoRA' if use_lora else 'Full'}-GRPO",
-    learning_rate=1e-6,
+    learning_rate=1e-5,
     temperature=1.0,
     warmup_ratio=0.1,
     lr_scheduler_type="cosine",
