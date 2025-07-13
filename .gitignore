@@ -205,6 +205,7 @@ test.py
 **/outputs/*
 **/unsloth_cache/*
 **/unsloth_compiled_cache/*
+<<<<<<< HEAD
 **/debug_logs/**.pt
 *.pth
 *.safetensors

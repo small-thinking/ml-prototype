@@ -10,13 +10,20 @@ apt install -y \
   git \
   curl \
   wget \
+<<<<<<< HEAD
   tmux \
+=======
+>>>>>>> 1b7f32b1b0a56389007b1385e5b6a7a269724e6a
   unzip
 
 echo "=== [Step 3] Setting up Python environment ==="
 pip3 install --upgrade pip
 pip3 install virtualenv ipython
+<<<<<<< HEAD
 # pip install -r requirements.txt
+=======
+pip install -r requirements.txt
+>>>>>>> 1b7f32b1b0a56389007b1385e5b6a7a269724e6a
 
 echo "=== [Step 4] Installing oh-my-bash ==="
 if [ ! -d "$HOME/.oh-my-bash" ]; then
@@ -48,8 +55,13 @@ ssh-add ~/.ssh/id_ed25519
 
 echo "=== [Step 6] Install Ollama ==="
 # Install Ollama
+<<<<<<< HEAD
 # curl -fsSL https://ollama.com/install.sh | sh
 # ollama serve &
+=======
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
+>>>>>>> 1b7f32b1b0a56389007b1385e5b6a7a269724e6a
 
 echo "=== [Step 7] Ramp up workspace directory ==="
 source .bashrc

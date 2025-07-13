@@ -14,10 +14,10 @@ if model_size == "8B":
     model_name = "meta-llama/Llama-3.1-8B-Instruct"
 elif model_size == "3B":
     model_name = "meta-llama/Llama-3.2-3B-Instruct"
-elif model_size == "0.5B":
-    model_name = "Qwen/Qwen2-0.5B-Instruct"
 elif model_size == "1.5B":
     model_name = "Qwen/Qwen2-1.5B-Instruct"
+elif model_size == "0.5B":
+    model_name = "Qwen/Qwen2-0.5B-Instruct"
 else:
     raise ValueError(f"Invalid model size: {model_size}")
 
@@ -134,9 +134,7 @@ def check_answer_func(completions, ground_truth, **kwargs):
     """Reward if the answer is correct with partial matching for knowledge-based scoring"""
     global step_counter
     step_counter += 1
-    
     scores = []
-    
     # Always print when there's a full score, occasionally print other cases
     should_print = False
     print_reason = ""
@@ -213,7 +211,6 @@ def check_answer_func(completions, ground_truth, **kwargs):
             score -= 1.0
         else:
             answer = answer_match.group(1).strip()
-            
             # Exact match gets full score (including case-insensitive)
             if answer.lower() == ground_truth.lower():
                 score += 8.0
@@ -255,9 +252,7 @@ training_args = GRPOConfig(
     run_name=f"{model_name}-{'LoRA' if use_lora else 'Full'}-GRPO",
     fp16=True,
     fp16_full_eval=False,
-    fp16_opt_level="O1",
-    save_strategy="no",  # Don't save intermediate checkpoints
-    save_total_limit=1,  # Keep only the last checkpoint
+    fp16_opt_level="O1"
 )
 
 trainer = GRPOTrainer(
